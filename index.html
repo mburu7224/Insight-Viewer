@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en" >
+<head>
+  <meta charset="UTF-8">
+  <title>VIWER UPDATE</title>
+  <link rel="stylesheet" href="./style.css">
+
+</head>
+<body>
+<!-- partial:index.partial.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ruiru Media House - Viewer</title>
+    <!-- CSS will be provided separately -->
+    <link rel="stylesheet" href="viewer.css">
+    <!-- Font Awesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Sidebar Wrapper - Contains the fixed sidebar on desktop and the mobile menu content -->
+        <div class="sidebar-wrapper">
+            <header class="sidebar-header">
+                <h1>Ruiru Media House</h1>
+            </header>
+            <nav class="sidebar-nav">
+                <ul>
+                    <li><a href="#" class="nav-item active" data-section="home">
+                        <i class="fas fa-home"></i> Home
+                    </a></li>
+                    <li><a href="#" class="nav-item" data-section="sermons">
+                        <i class="fas fa-church"></i> Sermons LIVE
+                    </a></li>
+                    <li><a href="#" class="nav-item" data-section="entertainment">
+                        <i class="fas fa-film"></i> Entertainment
+                    </a></li>
+                    <li><a href="#" class="nav-item" data-section="bible-study">
+                        <i class="fas fa-book-bible"></i> Bible Study
+                    </a></li>
+                    <li><a href="#" class="nav-item" data-section="events">
+                        <i class="fas fa-calendar-alt"></i> Events
+                    </a></li>
+                    <li><a href="#" class="nav-item" data-section="announcement">
+                        <i class="fas fa-bullhorn"></i> Announcement
+                    </a></li>
+                </ul>
+            </nav>
+        </div>
+
+        <!-- Main Content Area Wrapper - Handles scrolling for content -->
+        <div class="main-content-wrapper">
+            <header class="main-header">
+                <button class="menu-toggle mobile-only">
+                    <!-- This is the hamburger icon -->
+                    <i class="fas fa-bars"></i>
+                </button>
+                <div class="search-bar">
+                    <input type="text" id="searchInput" placeholder="Search sermons, events...">
+                    <button class="search-icon">
+                        <i class="fas fa-search"></i>
+                    </button>
+                </div>
+                <!-- New date filter for viewers -->
+                <div class="date-filter">
+                    <input type="date" id="eventDateFilter" title="Filter by Event Date">
+                    <button id="clearDateFilter" title="Clear Date Filter" style="display:none;"><i class="fas fa-times"></i></button>
+                </div>
+            </header>
+
+            <main class="content-display">
+                <section id="home-section" class="content-section active">
+                    <div class="welcome-card">
+                        <div class="icon-placeholder"><i class="fas fa-tv"></i></div>
+                        <h2>Welcome to Ruiru Media House</h2>
+                        <p>Explore live streams, music, videos, and Bible study materials.</p>
+                    </div>
+                </section>
+
+                <section id="sermons-section" class="content-section">
+                    <h2>Sermons LIVE</h2>
+                    <div id="sermons-container" class="content-list"></div>
+                </section>
+
+                <section id="entertainment-section" class="content-section">
+                    <h2>Entertainment</h2>
+                    <div id="entertainment-container" class="content-list"></div>
+                </section>
+
+                <section id="bible-study-section" class="content-section">
+                    <h2>Bible Study</h2>
+                    <div id="bible-study-container" class="content-list"></div>
+                </section>
+
+                <section id="events-section" class="content-section">
+                    <h2>Events</h2>
+                    <div id="events-container" class="content-list"></div>
+                </section>
+
+                <section id="announcement-section" class="content-section">
+                    <h2>Announcements</h2>
+                    <div id="announcement-container" class="content-list"></div>
+                </section>
+            </main>
+        </div>
+    </div>
+
+    <!-- JavaScript will be provided separately -->
+    <script type="module" src="viewer.js"></script>
+</body>
+</html>
+<!-- partial -->
+  <script type="module" src="./script.js"></script>
+
+</body>
+</html>
