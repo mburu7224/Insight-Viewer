@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ruiru Media House - Viewer</title>
+    <link rel="stylesheet" href="./style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <!-- SortableJS for drag-and-drop -->
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <!-- Sidebar Wrapper - Contains the fixed sidebar on desktop and the mobile menu content -->
+        <div class="sidebar-wrapper">
+            <header class="sidebar-header">
+                <h1>Ruiru Media House</h1>
+            </header>
+            <nav class="sidebar-nav">
+                <ul>
+                    <li><a href="#" class="nav-item active" data-section="home">
+                        <i class="fas fa-home"></i> Home
+                    </a></li>
+                    <li><a href="#" class="nav-item" data-section="sermons">
+                        <i class="fas fa-church"></i> Sermons LIVE
+                    </a></li>
+                    <li><a href="#" class="nav-item" data-section="entertainment">
+                        <i class="fas fa-film"></i> Entertainment
+                    </a></li>
+                    <li><a href="#" class="nav-item" data-section="bible-study">
+                        <i class="fas fa-book-bible"></i> Bible Study
+                    </a></li>
+                    <li><a href="#" class="nav-item" data-section="events">
+                        <i class="fas fa-calendar-alt"></i> Events
+                    </a></li>
+                    <li><a href="#" class="nav-item" data-section="announcement">
+                        <i class="fas fa-bullhorn"></i> Announcement
+                    </a></li>
+                </ul>
+            </nav>
+        </div>
+
+        <!-- Sidebar overlay for mobile -->
+        <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+        <!-- Main Content Area Wrapper -->
+        <div class="main-content-wrapper">
+            <header class="main-header">
+                <button class="menu-toggle mobile-only" id="menuToggle" aria-label="Toggle menu">
+                    <i class="fas fa-bars"></i>
+                </button>
+                <div class="search-bar">
+                    <input type="text" id="searchInput" placeholder="Search sermons, events...">
+                    <button class="search-icon" aria-label="Search">
+                        <i class="fas fa-search"></i>
+                    </button>
+                </div>
+                <div class="date-filter">
+                    <input type="date" id="eventDateFilter" title="Filter by Event Date">
+                    <button id="clearDateFilter" title="Clear Date Filter" style="display:none;">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div class="settings-gear-wrapper">
+                    <button id="settingsGear" class="settings-gear" aria-label="Settings" title="Settings">
+                        <i class="fas fa-cog"></i>
+                    </button>
+                </div>
+            </header>
+
+            <main class="content-display">
+                <section id="home-section" class="content-section active">
+                    <!-- Large Hero Player (empty by default) -->
+                    <div id="home-hero-player-container" style="display:none;">
+                        <div class="hero-player-content" id="heroPlayerContent"></div>
+                    </div>
+                    <div class="welcome-card">
+                        <div class="icon-placeholder"><i class="fas fa-tv"></i></div>
+                        <h2>Welcome to Ruiru Media House</h2>
+                        <p>Explore live streams, music, videos, and Bible study materials.</p>
+                    </div>
+                    <!-- Home Video Grid (thumbnails) -->
+                    <div id="homeVideoGrid" class="home-video-grid"></div>
+
+                    <!-- Theater Mode Container -->
+                    <div class="theater-container" id="theaterContainer" style="display:none;">
+                        <div class="player-column">
+                            <div class="main-player-view" id="mainPlayerView" aria-live="polite">
+                                <!-- Player injected here -->
+                            </div>
+                        </div>
+                        <aside class="video-playlist-sidebar" id="videoPlaylistSidebar">
+                            <div class="playlist-boundary">
+                                <div class="boundary-inner">
+                                    <div id="boundaryWelcomeWrapper"></div>
+                                    <div id="playlistGrid" class="playlist-grid"></div>
+                                </div>
+                            </div>
+                        </aside>
+                    </div>
+                </section>
+
+                <section id="sermons-section" class="content-section">
+                    <h2>Sermons LIVE</h2>
+                    <div id="sermons-container" class="content-list"></div>
+                </section>
+
+                <section id="entertainment-section" class="content-section">
+                    <h2>Entertainment</h2>
+                    <div id="entertainment-container" class="content-list"></div>
+                </section>
+
+                <section id="bible-study-section" class="content-section">
+                    <h2>Bible Study</h2>
+                    <div id="bible-study-container" class="content-list"></div>
+                </section>
+
+                <section id="events-section" class="content-section">
+                    <h2>Events</h2>
+                    <div id="events-container" class="content-list"></div>
+                </section>
+
+                <section id="announcement-section" class="content-section">
+                    <h2>Announcements</h2>
+                    <div id="announcement-container" class="content-list"></div>
+                </section>
+            </main>
+        </div>
+    </div>
+
+    <!-- Joker (Settings) overlay - The Joker's Mirror Design -->
+    <div id="joker-screen" class="joker-screen" aria-hidden="true" style="display:none;">
+        <div class="joker-split">
+            <!-- Action Zone (Main content area) -->
+            <div class="joker-left">
+                <div class="joker-left-inner">
+                    <!-- Mobile Header (visible only on phone) -->
+                    <div class="joker-mobile-header">
+                        <div class="joker-mobile-back-btn" id="jokerBackPortalMobile" aria-label="Back">
+                            <i class="fas fa-arrow-left"></i>
+                        </div>
+                        <div class="joker-mobile-header-content">
+                            <div class="joker-mobile-title-row">
+                                <i class="fas fa-cog"></i>
+                                <span class="joker-mobile-main-title">Settings</span>
+                            </div>
+                            <span class="joker-mobile-subtitle">Profile Settings</span>
+                        </div>
+                    </div>
+                    <!-- Desktop/Laptop Top Bar (visible only on larger screens) -->
+                    <div class="joker-top-bar">
+                        <button id="jokerBackPortal" class="joker-back-portal" aria-label="Back">
+                            <i class="fas fa-arrow-left"></i>
+                        </button>
+                        <h3 class="joker-menu-title"><i class="fas fa-cog"></i> Settings</h3>
+                    </div>
+                    <!-- Mobile Icon Row (visible only on phone) -->
+                    <div class="joker-mobile-icon-row">
+                        <div class="joker-mobile-icon-wrapper">
+                            <div class="joker-mobile-icon-container active" data-action="profile">
+                                <i class="fas fa-user"></i>
+                            </div>
+                            <span class="joker-mobile-icon-label">Profile</span>
+                        </div>
+                        <div class="joker-mobile-icon-wrapper">
+                            <div class="joker-mobile-icon-container" data-action="customization">
+                                <i class="fas fa-palette"></i>
+                            </div>
+                            <span class="joker-mobile-icon-label">Customisation</span>
+                        </div>
+                        <div class="joker-mobile-icon-wrapper">
+                            <div class="joker-mobile-icon-container" data-action="security">
+                                <i class="fas fa-shield-alt"></i>
+                            </div>
+                            <span class="joker-mobile-icon-label">Security</span>
+                        </div>
+                        <div class="joker-mobile-icon-wrapper">
+                            <div class="joker-mobile-icon-container" data-action="login">
+                                <i class="fas fa-sign-in-alt"></i>
+                            </div>
+                            <span class="joker-mobile-icon-label">Login</span>
+                        </div>
+                        <div class="joker-mobile-icon-wrapper">
+                            <div class="joker-mobile-icon-container" data-action="register">
+                                <i class="fas fa-user-plus"></i>
+                            </div>
+                            <span class="joker-mobile-icon-label">Register</span>
+                        </div>
+                    </div>
+                    <div id="jokerActionArea" class="joker-action-area">
+                        <!-- Content populated by JavaScript based on selected command -->
+                    </div>
+                </div>
+            </div>
+            <!-- Command Sidebar (20% right) - Hidden on mobile -->
+            <div class="joker-right">
+                <h3 class="joker-menu-title"><i class="fas fa-cog"></i> Settings</h3>
+                <div class="joker-commands">
+                    <button class="joker-cmd active" data-action="profile">
+                        <i class="fas fa-user"></i> <span>Profile</span>
+                    </button>
+                    <button class="joker-cmd" data-action="customization">
+                        <i class="fas fa-palette"></i> <span>Customization</span>
+                    </button>
+                    <button class="joker-cmd" data-action="security">
+                        <i class="fas fa-shield-alt"></i> <span>Security</span>
+                    </button>
+                    <div class="joker-menu-divider"></div>
+                    <button class="joker-cmd" data-action="login">
+                        <i class="fas fa-sign-in-alt"></i> <span>Login</span>
+                    </button>
+                    <button class="joker-cmd" data-action="register">
+                        <i class="fas fa-user-plus"></i> <span>Register</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Registration Result Modal -->
+    <div id="registration-modal" class="registration-modal" aria-hidden="true" style="display:none;">
+        <div class="registration-modal-overlay"></div>
+        <div class="registration-modal-content">
+            <div class="registration-modal-icon" id="registration-modal-icon"></div>
+            <h2 class="registration-modal-title" id="registration-modal-title"></h2>
+            <p class="registration-modal-message" id="registration-modal-message"></p>
+            <button class="registration-modal-close" id="registration-modal-close">OK</button>
+        </div>
+    </div>
+    <!-- YouTube Connect Button - Hidden by default, shown only to admin -->
+<div class="youtube-btn-container" style="display: none;">
+  <button id="connectYoutube">Connect YouTube</button>
+</div>
+
+
+    <!-- YouTube Player API -->
+    <script src="https://www.youtube.com/iframe_api"></script>
+    <script type="module" src="./script.js"></script>
+</body>
+</html>
