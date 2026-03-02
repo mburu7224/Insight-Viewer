@@ -729,8 +729,8 @@ html, body {
     width: 100%;
     height: 100%;
     background: rgba(0, 0, 0, 0.6);
-    backdrop-filter: blur(4px);
     -webkit-backdrop-filter: blur(4px);
+    backdrop-filter: blur(4px);
 }
 
 .registration-modal-content {
@@ -1560,6 +1560,321 @@ input:checked + .toggle-slider:before {
     background: #1a1a2e;
     color: #fff;
     border-color: #1a1a2e;
+}
+
+/* Profile Image Crop Modal */
+.image-crop-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.85);
+    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(8px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+    animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.image-crop-modal {
+    background: linear-gradient(145deg, #1a1a2e 0%, #16213e 100%);
+    border-radius: 24px;
+    padding: 32px;
+    max-width: 540px;
+    width: 95%;
+    box-shadow: 0 25px 80px rgba(0, 0, 0, 0.5);
+    animation: modalSlideUp 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes modalSlideUp {
+    from {
+        opacity: 0;
+        transform: translateY(40px) scale(0.9);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+.image-crop-modal h3 {
+    color: #fff;
+    margin: 0 0 24px 0;
+    text-align: center;
+    font-size: 1.4em;
+    font-weight: 600;
+}
+
+.image-crop-modal h3::before {
+    content: '✎ ';
+    opacity: 0.8;
+}
+
+/* Main crop container */
+.crop-main-container {
+    --crop-circle-size: 200px;
+    position: relative;
+    width: 100%;
+    height: 350px;
+    margin-bottom: 24px;
+    border-radius: 16px;
+    overflow: hidden;
+    background: #0a0a15;
+    touch-action: none;
+}
+
+/* Draggable image area */
+.crop-image-area {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
+    cursor: grab;
+    overflow: visible;
+    z-index: 3;
+    clip-path: circle(calc(var(--crop-circle-size) / 2) at 50% 50%);
+    touch-action: none;
+}
+
+.crop-image-area:active {
+    cursor: grabbing;
+}
+
+/* The main image - clear inside circle */
+.crop-main-image {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: auto;
+    height: auto;
+    object-fit: cover;
+    transform-origin: top left;
+    -webkit-user-drag: none;
+    user-select: none;
+    pointer-events: none;
+    will-change: transform;
+    image-rendering: auto;
+}
+
+/* Blur overlay - covers the area OUTSIDE the circle */
+.crop-blur-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    /* Create blur using radial gradient mask technique */
+    background: radial-gradient(
+        circle at center,
+        transparent calc((var(--crop-circle-size) / 2) - 1px),
+        rgba(0, 0, 0, 0.7) calc((var(--crop-circle-size) / 2) + 1px),
+        rgba(0, 0, 0, 0.9) 100%
+    );
+    z-index: 5;
+}
+
+/* Second blur layer - actually applies the blur effect */
+.crop-blur-effect {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 1;
+    overflow: hidden;
+}
+
+.crop-blur-effect img {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: auto;
+    height: auto;
+    object-fit: cover;
+    transform-origin: top left;
+    filter: blur(18px);
+    opacity: 0.55;
+    will-change: transform;
+}
+
+/* Circular frame border */
+.crop-circle-border {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: var(--crop-circle-size);
+    height: var(--crop-circle-size);
+    border-radius: 50%;
+    box-shadow: 
+        0 0 0 3px rgba(255, 255, 255, 0.95),
+        0 0 0 5px rgba(243, 156, 18, 0.9),
+        0 0 0 10px rgba(0, 0, 0, 0.4),
+        0 8px 32px rgba(0, 0, 0, 0.5);
+    pointer-events: none;
+    z-index: 10;
+}
+
+.zoom-control {
+    margin-bottom: 24px;
+    padding: 0 16px;
+}
+
+.zoom-control label {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    color: rgba(255, 255, 255, 0.8);
+    font-size: 0.9em;
+    margin-bottom: 10px;
+}
+
+.zoom-control label span {
+    color: #f39c12;
+    font-weight: 600;
+}
+
+.zoom-slider {
+    width: 100%;
+    height: 8px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.15);
+    outline: none;
+    -webkit-appearance: none;
+    appearance: none;
+    cursor: pointer;
+}
+
+.zoom-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #f39c12 0%, #e74c3c 100%);
+    cursor: pointer;
+    box-shadow: 0 2px 10px rgba(243, 156, 18, 0.4);
+    transition: transform 0.2s ease;
+}
+
+.zoom-slider::-webkit-slider-thumb:hover {
+    transform: scale(1.15);
+}
+
+.zoom-slider::-moz-range-thumb {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #f39c12 0%, #e74c3c 100%);
+    cursor: pointer;
+    border: none;
+    box-shadow: 0 2px 10px rgba(243, 156, 18, 0.4);
+}
+
+.crop-buttons {
+    display: flex;
+    gap: 16px;
+    justify-content: center;
+}
+
+.crop-btn {
+    padding: 14px 32px;
+    border: none;
+    border-radius: 12px;
+    font-size: 1em;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    min-width: 120px;
+}
+
+.crop-btn.cancel {
+    background: rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.8);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.crop-btn.cancel:hover {
+    background: rgba(255, 255, 255, 0.2);
+    color: #fff;
+}
+
+.crop-btn.save {
+    background: linear-gradient(135deg, #27ae60 0%, #2ecc71 100%);
+    color: #fff;
+    box-shadow: 0 4px 15px rgba(39, 174, 96, 0.3);
+}
+
+.crop-btn.save:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(39, 174, 96, 0.4);
+}
+
+.crop-btn.save:active {
+    transform: translateY(0);
+}
+
+/* Helper text */
+.crop-hint {
+    text-align: center;
+    color: rgba(255, 255, 255, 0.5);
+    font-size: 0.8em;
+    margin-top: 16px;
+}
+
+.crop-hint::before {
+    content: '⟲ Drag to reposition • Use slider to zoom';
+}
+
+/* Responsive */
+@media (max-width: 500px) {
+    .image-crop-modal {
+        padding: 24px 20px;
+    }
+    
+    .crop-main-container {
+        --crop-circle-size: 160px;
+    }
+    
+    .crop-circle-border {
+        width: 160px;
+        height: 160px;
+    }
+    
+    .crop-main-container {
+        height: 300px;
+    }
+    
+    .crop-btn {
+        padding: 12px 24px;
+        min-width: 100px;
+    }
+    
+    .crop-blur-overlay {
+        background: radial-gradient(
+            circle at center,
+            transparent calc((var(--crop-circle-size) / 2) - 1px),
+            rgba(0, 0, 0, 0.7) calc((var(--crop-circle-size) / 2) + 1px),
+            rgba(0, 0, 0, 0.9) 100%
+        );
+    }
+}
+
+/* Hidden state */
+.image-crop-modal-overlay.hidden {
+    display: none;
 }
 
 /* Security Section Styles */

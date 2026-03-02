@@ -17,13 +17,22 @@ const ADMIN_EMAIL = "admin@example.com"; // Replace with your actual admin email
 // Import Firebase functions from CDN
 import { initializeApp } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-app.js";
 import { getFirestore, collection, query, where, onSnapshot, doc, setDoc, getDoc, updateDoc } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-firestore.js";
-import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, sendPasswordResetEmail, onAuthStateChanged, GoogleAuthProvider, signInWithPopup } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-auth.js";
+import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, sendPasswordResetEmail, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signInWithRedirect, setPersistence, browserLocalPersistence, updateProfile } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-auth.js";
 
 // Initialize Firebase app and Firestore database instance
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
 const contentCollectionRef = collection(db, "content_items");
+
+async function initializeAuthSessionPersistence() {
+    try {
+        await setPersistence(auth, browserLocalPersistence);
+    } catch (e) {
+        console.warn('Failed to enforce Firebase auth persistence:', e);
+    }
+}
+const authPersistenceReady = initializeAuthSessionPersistence();
 
 // --- Admin Configuration ---
 const SETTINGS_DOC_ID = "app_settings"; // Single document for app settings
@@ -35,22 +44,54 @@ const SETTINGS_DOC_ID = "app_settings"; // Single document for app settings
  */
 async function signInWithGoogle() {
     try {
+        await authPersistenceReady;
         const provider = new GoogleAuthProvider();
-        // Add scopes if needed
-        provider.addScope('https://www.googleapis.com/auth/youtube.readonly');
-        
-        // Sign in with popup
+        // Use default Google scopes for authentication only.
+        provider.setCustomParameters({ prompt: 'select_account' });
+
         const result = await signInWithPopup(auth, provider);
         const user = result.user;
+        await loadProfileFromBackend(user);
         
         console.log('Google sign-in successful:', user.email);
         
         // Return success
         return { success: true, message: `Welcome, ${user.displayName || user.email}!` };
     } catch (error) {
+        if (error?.code === 'auth/popup-blocked' || error?.code === 'auth/cancelled-popup-request') {
+            try {
+                const provider = new GoogleAuthProvider();
+                provider.setCustomParameters({ prompt: 'select_account' });
+                await signInWithRedirect(auth, provider);
+                return { success: true, redirecting: true, message: 'Redirecting to Google sign-in...' };
+            } catch (redirectError) {
+                console.error('Google sign-in redirect error:', redirectError);
+                return { success: false, message: getAuthErrorMessage(redirectError?.code, redirectError?.message) };
+            }
+        }
         console.error('Google sign-in error:', error);
-        return { success: false, message: error.message };
+        return { success: false, message: getAuthErrorMessage(error?.code, error?.message) };
     }
+}
+
+function getAuthErrorMessage(errorCode, fallbackMessage) {
+    const map = {
+        'auth/invalid-email': 'Invalid email address format.',
+        'auth/user-not-found': 'No account found with that email.',
+        'auth/wrong-password': 'Invalid email or password.',
+        'auth/invalid-credential': 'Invalid email or password.',
+        'auth/email-already-in-use': 'This email is already registered. Please login instead.',
+        'auth/weak-password': 'Password should be at least 6 characters.',
+        'auth/network-request-failed': 'Network error. Check your internet connection and try again.',
+        'auth/too-many-requests': 'Too many attempts. Please wait a few minutes and try again.',
+        'auth/operation-not-allowed': 'Email/Password sign-in is disabled in Firebase Authentication settings.',
+        'auth/configuration-not-found': 'Authentication configuration is incomplete in Firebase project settings.',
+        'auth/popup-closed-by-user': 'Google sign-in popup was closed before completing sign-in.',
+        'auth/popup-blocked': 'Popup blocked by browser. Allow popups for this site.',
+        'auth/cancelled-popup-request': 'Sign-in popup request was cancelled. Try again.',
+        'auth/unauthorized-domain': 'Current domain is not authorized in Firebase Authentication settings.'
+    };
+    return map[errorCode] || fallbackMessage || 'Authentication failed. Please try again.';
 }
 
 /**
@@ -177,6 +218,43 @@ function pauseAllMedia() {
             }
         } catch (e) { /* ignore cross-origin issues gracefully */ }
     });
+}
+
+function hideJokerOverlay() {
+    const jokerScreen = document.getElementById('joker-screen');
+    const settingsGear = document.getElementById('settingsGear');
+    if (!jokerScreen) return;
+    jokerScreen.setAttribute('aria-hidden', 'true');
+    jokerScreen.style.display = 'none';
+    document.body.style.overflow = '';
+    settingsGear && settingsGear.focus();
+}
+
+function showProfileAfterAuthSuccess(message) {
+    if (message) {
+        alert(message);
+    }
+
+    const desktopProfileBtn = document.querySelector('.joker-cmd[data-action="profile"]');
+    if (desktopProfileBtn) {
+        desktopProfileBtn.click();
+        return;
+    }
+
+    const mobileProfileBtn = document.querySelector('.joker-mobile-icon-container[data-action="profile"]');
+    if (mobileProfileBtn) {
+        mobileProfileBtn.click();
+        return;
+    }
+
+    // Fallback: render profile directly if menu buttons are not available.
+    const jokerActionArea = document.getElementById('jokerActionArea');
+    if (!jokerActionArea) return;
+    jokerActionArea.innerHTML = '';
+    const container = document.createElement('div');
+    container.className = 'joker-action joker-action-profile';
+    container.appendChild(renderProfileSection());
+    jokerActionArea.appendChild(container);
 }
 
 /**
@@ -1317,10 +1395,37 @@ function loadContentFirebase(section, searchTerm = '', filterDate = null) {
                 renderContentItem(docItem, contentContainer, { section, list: filteredDocs });
             });
         }
+        
+        // Also populate video grid for theater mode (like home section)
+        populateVideoGrid(section, filteredDocs);
 
     }, (error) => {
         console.error("Error fetching documents from Firestore: ", error);
         contentContainer.innerHTML = '<p class="text-center-message">Error loading content. Please check your internet connection and Firebase rules.</p>';
+    });
+}
+
+/**
+ * Populate video grid for any section (sermons, entertainment, bible-study, events, announcement)
+ * Similar to loadHomeVideos but for other sections
+ */
+function populateVideoGrid(section, docs) {
+    const grid = document.getElementById(`${section}VideoGrid`);
+    if (!grid) return;
+    
+    grid.innerHTML = '';
+    
+    if (docs.length === 0) {
+        grid.innerHTML = '<p class="text-center-message">No videos available.</p>';
+        return;
+    }
+    
+    docs.forEach((docItem) => {
+        const thumb = renderHomeThumbnail(docItem);
+        thumb.addEventListener('click', () => {
+            openTheaterMode(section, docItem, docs);
+        });
+        grid.appendChild(thumb);
     });
 }
 
@@ -1422,16 +1527,20 @@ function openTheaterMode(section, selectedDoc, listDocs) {
     wrapper.appendChild(mainPlayer);
     wrapper.appendChild(sidebar);
 
-    // Insert wrapper after the section heading (if present), otherwise at top
-    const heading = sectionEl.querySelector('h2');
-    if (heading && heading.nextSibling) {
-        sectionEl.insertBefore(wrapper, heading.nextSibling);
+    // Insert wrapper after welcome-card (if present), otherwise at top
+    const welcomeCard = sectionEl.querySelector('.welcome-card');
+    if (welcomeCard && welcomeCard.nextSibling) {
+        sectionEl.insertBefore(wrapper, welcomeCard.nextSibling);
     } else {
         sectionEl.insertBefore(wrapper, sectionEl.firstChild);
     }
 
     // Hide the existing content container (we'll show the sidebar list instead)
     contentContainer.style.display = 'none';
+    
+    // Also hide the video grid when in theater mode
+    const videoGrid = sectionEl.querySelector('.home-video-grid');
+    if (videoGrid) videoGrid.style.display = 'none';
 
     // Populate main player with selected
     populateSplitPlayer(selectedDoc, mainPlayer);
@@ -1467,6 +1576,9 @@ function openTheaterMode(section, selectedDoc, listDocs) {
         wrapper.remove();
         // restore original content container
         contentContainer.style.display = '';
+        // restore video grid
+        const videoGrid = sectionEl.querySelector('.home-video-grid');
+        if (videoGrid) videoGrid.style.display = '';
         // scroll to the section top
         setTimeout(() => {
             const headerOffset = document.querySelector('.main-header') ? document.querySelector('.main-header').offsetHeight : 0;
@@ -1540,6 +1652,28 @@ const settingsState = {
         }
     }
 };
+
+const LEGACY_PROFILE_STORAGE_KEY = 'ruiruProfile';
+const GUEST_PROFILE_STORAGE_KEY = 'ruiruProfileGuest';
+let currentProfileUid = null;
+let latestProfileLoadRequestId = 0;
+
+function getEmptyProfileState() {
+    return {
+        name: '',
+        email: '',
+        ministry: '',
+        bio: '',
+        avatar: '',
+        socialLinks: {
+            website: '',
+            youtube: '',
+            instagram: '',
+            twitter: '',
+            facebook: ''
+        }
+    };
+}
 
 // Load settings from localStorage
 function loadSettings() {
@@ -1674,7 +1808,7 @@ function renderProfileSection() {
             <div>
                 <input type="file" id="avatarInput" accept="image/*" style="display:none;">
                 <button class="avatar-btn" id="avatarUploadBtn">Upload Photo</button>
-                <p style="font-size:0.85em;color:#888;margin-top:8px;">JPG, PNG or GIF. Max 2MB.</p>
+                <p style="font-size:0.85em;color:#888;margin-top:8px;">JPG, PNG or GIF. Maximum allowed file size is 3MB.</p>
             </div>
         </div>
         
@@ -2077,9 +2211,10 @@ function renderSecuritySection() {
 
 // Save Profile
 function saveProfile() {
+    const authenticatedEmail = auth.currentUser?.email || '';
     const profile = {
         name: document.getElementById('profileName')?.value || '',
-        email: document.getElementById('profileEmail')?.value || '',
+        email: authenticatedEmail || document.getElementById('profileEmail')?.value || '',
         ministry: document.getElementById('profileMinistry')?.value || '',
         bio: document.getElementById('profileBio')?.value || '',
         avatar: settingsState.profile.avatar || '',
@@ -2092,18 +2227,10 @@ function saveProfile() {
         }
     };
     
-    // Save to localStorage
     settingsState.profile = profile;
-    localStorage.setItem('ruiruProfile', JSON.stringify(profile));
-    
-    // Update avatar preview if there's an avatar
-    if (profile.avatar) {
-        const avatarPreview = document.getElementById('avatarPreview');
-        if (avatarPreview) {
-            avatarPreview.style.backgroundImage = `url(${profile.avatar})`;
-            avatarPreview.textContent = '';
-        }
-    }
+    persistProfileToLocalStorage();
+    updateProfileAvatarUI(profile.avatar || '');
+    persistProfileToBackend(profile.avatar || '');
     
     showSavedIndicator();
 }
@@ -2143,71 +2270,715 @@ function resetCustomization() {
 
 // Load Profile from localStorage
 function loadProfile() {
-    const saved = localStorage.getItem('ruiruProfile');
-    if (saved) {
+    if (auth.currentUser) {
+        applyProfileStateToForm();
+        return;
+    }
+
+    let parsed = null;
+    const savedGuest = localStorage.getItem(GUEST_PROFILE_STORAGE_KEY);
+    if (savedGuest) {
         try {
-            const parsed = JSON.parse(saved);
-            settingsState.profile = { ...settingsState.profile, ...parsed };
-            
-            // Populate form fields
-            const nameField = document.getElementById('profileName');
-            const emailField = document.getElementById('profileEmail');
-            const ministryField = document.getElementById('profileMinistry');
-            const bioField = document.getElementById('profileBio');
-            const avatarPreview = document.getElementById('avatarPreview');
-            
-            if (nameField) nameField.value = settingsState.profile.name || '';
-            if (emailField) emailField.value = settingsState.profile.email || '';
-            if (ministryField) ministryField.value = settingsState.profile.ministry || '';
-            if (bioField) bioField.value = settingsState.profile.bio || '';
-            
-            // Update avatar preview
-            if (avatarPreview && settingsState.profile.avatar) {
-                avatarPreview.style.backgroundImage = `url(${settingsState.profile.avatar})`;
-                avatarPreview.textContent = '';
-            } else if (avatarPreview && settingsState.profile.name) {
+            parsed = JSON.parse(savedGuest);
+        } catch (e) {
+            console.warn('Failed to parse guest profile cache:', e);
+        }
+    } else {
+        // One-time migration path for older guests (email intentionally excluded).
+        const legacy = localStorage.getItem(LEGACY_PROFILE_STORAGE_KEY);
+        if (legacy) {
+            try {
+                parsed = JSON.parse(legacy);
+            } catch (e) {
+                console.warn('Failed to parse legacy profile cache:', e);
+            }
+            localStorage.removeItem(LEGACY_PROFILE_STORAGE_KEY);
+        }
+    }
+
+    if (parsed) {
+        settingsState.profile = {
+            ...getEmptyProfileState(),
+            ...settingsState.profile,
+            ...parsed,
+            email: '',
+            socialLinks: {
+                ...getEmptyProfileState().socialLinks,
+                ...settingsState.profile.socialLinks,
+                ...(parsed.socialLinks || {})
+            }
+        };
+    }
+
+    applyProfileStateToForm();
+}
+
+// Apply avatar to visible profile UI surfaces
+function updateProfileAvatarUI(avatarRef) {
+    document.querySelectorAll('#avatarPreview, .avatar-preview').forEach((avatarPreview) => {
+        if (avatarRef) {
+            avatarPreview.style.backgroundImage = `url(${avatarRef})`;
+            avatarPreview.style.backgroundSize = 'cover';
+            avatarPreview.style.backgroundPosition = 'center';
+            avatarPreview.style.backgroundRepeat = 'no-repeat';
+            avatarPreview.textContent = '';
+        } else {
+            avatarPreview.style.backgroundImage = '';
+            avatarPreview.style.backgroundSize = '';
+            avatarPreview.style.backgroundPosition = '';
+            avatarPreview.style.backgroundRepeat = '';
+            if (settingsState.profile.name) {
                 avatarPreview.textContent = settingsState.profile.name.charAt(0).toUpperCase();
             }
-            
-            // Populate social links
-            const socialFields = ['website', 'youtube', 'instagram', 'twitter', 'facebook'];
-            socialFields.forEach(field => {
-                const input = document.getElementById(`social${field.charAt(0).toUpperCase() + field.slice(1)}`);
-                if (input && settingsState.profile.socialLinks) {
-                    input.value = settingsState.profile.socialLinks[field] || '';
-                }
-            });
-        } catch (e) {
-            console.warn('Failed to load profile:', e);
+        }
+    });
+
+    // Mirror avatar in header/profile chips if present.
+    document.querySelectorAll('.profile-circle').forEach((el) => {
+        if (avatarRef) {
+            el.style.backgroundImage = `url(${avatarRef})`;
+            el.style.backgroundSize = 'cover';
+            el.style.backgroundPosition = 'center';
+            el.style.backgroundRepeat = 'no-repeat';
+            el.textContent = '';
+        } else {
+            el.style.backgroundImage = '';
+            el.style.backgroundSize = '';
+            el.style.backgroundPosition = '';
+            el.style.backgroundRepeat = '';
+        }
+    });
+}
+
+function applyProfileStateToForm() {
+    const nameField = document.getElementById('profileName');
+    const emailField = document.getElementById('profileEmail');
+    const ministryField = document.getElementById('profileMinistry');
+    const bioField = document.getElementById('profileBio');
+
+    if (nameField) nameField.value = settingsState.profile.name || '';
+    if (emailField) {
+        emailField.value = auth.currentUser?.email || settingsState.profile.email || '';
+        const isAuthenticated = Boolean(auth.currentUser);
+        emailField.readOnly = isAuthenticated;
+        if (isAuthenticated) {
+            emailField.setAttribute('title', 'Email is managed by Firebase Authentication.');
+        } else {
+            emailField.removeAttribute('title');
+        }
+    }
+    if (ministryField) ministryField.value = settingsState.profile.ministry || '';
+    if (bioField) bioField.value = settingsState.profile.bio || '';
+
+    updateProfileAvatarUI(settingsState.profile.avatar || '');
+
+    const socialFields = ['website', 'youtube', 'instagram', 'twitter', 'facebook'];
+    socialFields.forEach(field => {
+        const input = document.getElementById(`social${field.charAt(0).toUpperCase() + field.slice(1)}`);
+        if (input && settingsState.profile.socialLinks) {
+            input.value = settingsState.profile.socialLinks[field] || '';
+        }
+    });
+}
+
+function resetProfileState() {
+    settingsState.profile = getEmptyProfileState();
+    currentProfileUid = null;
+    applyProfileStateToForm();
+}
+
+function persistProfileToLocalStorage() {
+    if (auth.currentUser) {
+        localStorage.removeItem(GUEST_PROFILE_STORAGE_KEY);
+        localStorage.removeItem(LEGACY_PROFILE_STORAGE_KEY);
+        return;
+    }
+
+    const guestProfile = {
+        name: settingsState.profile.name || '',
+        ministry: settingsState.profile.ministry || '',
+        bio: settingsState.profile.bio || '',
+        avatar: settingsState.profile.avatar || '',
+        socialLinks: {
+            ...getEmptyProfileState().socialLinks,
+            ...(settingsState.profile.socialLinks || {})
+        }
+    };
+
+    localStorage.setItem(GUEST_PROFILE_STORAGE_KEY, JSON.stringify(guestProfile));
+}
+
+async function persistProfileToBackend(avatarRef, expectedUid = auth?.currentUser?.uid) {
+    const currentUser = auth?.currentUser;
+    if (!currentUser) return avatarRef;
+    if (expectedUid && currentUser.uid !== expectedUid) return avatarRef;
+
+    const resolvedAvatar = avatarRef || settingsState.profile.avatar || '';
+    const resolvedEmail = currentUser.email || settingsState.profile.email || '';
+    const resolvedName = settingsState.profile.name || currentUser.displayName || '';
+    const safeSocial = {
+        ...getEmptyProfileState().socialLinks,
+        ...(settingsState.profile.socialLinks || {})
+    };
+
+    settingsState.profile = {
+        ...getEmptyProfileState(),
+        ...settingsState.profile,
+        name: resolvedName,
+        email: resolvedEmail,
+        avatar: resolvedAvatar,
+        socialLinks: safeSocial
+    };
+
+    try {
+        const userRef = doc(db, "users", currentUser.uid);
+        const payload = {
+            uid: currentUser.uid,
+            email: resolvedEmail,
+            username: resolvedName,
+            avatar: resolvedAvatar,
+            profile: {
+                ...settingsState.profile,
+                avatar: resolvedAvatar,
+                email: resolvedEmail,
+                name: resolvedName,
+                socialLinks: safeSocial
+            },
+            profileUpdatedAt: new Date().toISOString()
+        };
+        await setDoc(userRef, payload, { merge: true });
+        currentProfileUid = currentUser.uid;
+    } catch (e) {
+        console.warn('Failed to sync profile to backend:', e);
+    }
+    return resolvedAvatar;
+}
+
+async function loadProfileFromBackend(user) {
+    if (!user?.uid) return;
+    const requestedUid = user.uid;
+    const requestId = ++latestProfileLoadRequestId;
+    const baseProfile = getEmptyProfileState();
+
+    try {
+        const snap = await getDoc(doc(db, "users", requestedUid));
+        if (requestId !== latestProfileLoadRequestId || auth.currentUser?.uid !== requestedUid) {
+            return;
+        }
+
+        const data = snap.exists() ? (snap.data() || {}) : {};
+        const backendProfile = (data.profile && typeof data.profile === 'object') ? data.profile : {};
+        const resolvedSocialLinks = {
+            ...baseProfile.socialLinks,
+            ...(backendProfile.socialLinks || {})
+        };
+
+        const resolvedProfile = {
+            ...baseProfile,
+            ...backendProfile,
+            name: backendProfile.name || data.username || user.displayName || '',
+            email: user.email || backendProfile.email || data.email || '',
+            avatar: backendProfile.avatar || data.avatar || user.photoURL || '',
+            socialLinks: resolvedSocialLinks
+        };
+
+        settingsState.profile = resolvedProfile;
+        currentProfileUid = requestedUid;
+        localStorage.removeItem(GUEST_PROFILE_STORAGE_KEY);
+        localStorage.removeItem(LEGACY_PROFILE_STORAGE_KEY);
+        applyProfileStateToForm();
+        await persistProfileToBackend(resolvedProfile.avatar, requestedUid);
+    } catch (e) {
+        console.warn('Failed to load profile from backend:', e);
+        if (requestId !== latestProfileLoadRequestId || auth.currentUser?.uid !== requestedUid) {
+            return;
+        }
+
+        settingsState.profile = {
+            ...baseProfile,
+            name: user.displayName || '',
+            email: user.email || '',
+            avatar: user.photoURL || '',
+            socialLinks: { ...baseProfile.socialLinks }
+        };
+        currentProfileUid = requestedUid;
+        applyProfileStateToForm();
+    }
+}
+
+async function dataUrlToAvatarFile(dataUrl) {
+    const response = await fetch(dataUrl);
+    const blob = await response.blob();
+    const ext = (blob.type && blob.type.includes('png')) ? 'png' : 'jpg';
+    const mime = blob.type || 'image/jpeg';
+    return new File([blob], `profile-cropped-${Date.now()}.${ext}`, { type: mime });
+}
+
+function replaceAvatarInputFile(file) {
+    const avatarInput = document.getElementById('avatarInput');
+    if (!avatarInput || !file || typeof DataTransfer === 'undefined') return;
+    try {
+        const dt = new DataTransfer();
+        dt.items.add(file);
+        avatarInput.files = dt.files;
+    } catch (e) {
+        console.warn('Failed to replace avatar input file:', e);
+    }
+}
+
+function resolveAvatarUploadRef(uploadResult, fallbackRef) {
+    if (!uploadResult) return fallbackRef;
+    if (typeof uploadResult === 'string') return uploadResult;
+    if (typeof uploadResult === 'object') {
+        return uploadResult.url || uploadResult.avatarUrl || uploadResult.imageUrl || uploadResult.path || fallbackRef;
+    }
+    return fallbackRef;
+}
+
+async function uploadAvatarViaExistingPipeline(croppedFile, fallbackRef) {
+    const existingUpload =
+        window.uploadProfileAvatar ||
+        window.uploadAvatar ||
+        window.uploadProfileImage ||
+        window.handleProfileImageUpload;
+
+    if (typeof existingUpload !== 'function') {
+        return fallbackRef;
+    }
+
+    try {
+        const uploadResult = await existingUpload(croppedFile);
+        return resolveAvatarUploadRef(uploadResult, fallbackRef);
+    } catch (e) {
+        console.warn('Existing avatar upload handler failed; falling back to local image ref:', e);
+        return fallbackRef;
+    }
+}
+
+// Handle avatar upload - Opens crop modal instead of direct upload
+function handleAvatarUpload(input) {
+    const file = input.files[0];
+    if (file) {
+        if (file.size > 3 * 1024 * 1024) {
+            alert('Maximum allowed file size is 3MB.');
+            return;
+        }
+        
+        // Store the file for later use after crop
+        window.pendingAvatarFile = file;
+        
+        // Read the file and open the crop modal
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            window.pendingAvatarDataUrl = e.target.result;
+            openImageCropModal(e.target.result);
+        };
+        reader.readAsDataURL(file);
+    }
+}
+
+// Image Crop Modal State
+const cropState = {
+    scale: 1,
+    translateX: 0,
+    translateY: 0,
+    isDragging: false,
+    dragPointerId: null,
+    startX: 0,
+    startY: 0,
+    imageWidth: 0,
+    imageHeight: 0,
+    renderWidth: 0,
+    renderHeight: 0,
+    containerWidth: 0,
+    containerHeight: 0,
+    teardown: null
+};
+
+// Open the image crop modal
+function openImageCropModal(imageSrc) {
+    // Remove existing modal if any
+    const existingModal = document.getElementById('imageCropModalOverlay');
+    if (existingModal) {
+        if (typeof cropState.teardown === 'function') {
+            cropState.teardown();
+            cropState.teardown = null;
+        }
+        existingModal.remove();
+    }
+    
+    // Reset crop state
+    cropState.scale = 1;
+    cropState.translateX = 0;
+    cropState.translateY = 0;
+    cropState.isDragging = false;
+    cropState.dragPointerId = null;
+    cropState.renderWidth = 0;
+    cropState.renderHeight = 0;
+    
+    // Create modal HTML - clear inside circle, blurry outside
+    const modalOverlay = document.createElement('div');
+    modalOverlay.id = 'imageCropModalOverlay';
+    modalOverlay.className = 'image-crop-modal-overlay';
+    modalOverlay.innerHTML = `
+        <div class="image-crop-modal">
+            <h3>Adjust Your Photo</h3>
+            <div class="crop-main-container" id="cropMainContainer">
+                <!-- Blur layer behind - shows blurry version outside circle -->
+                <div class="crop-blur-effect" id="cropBlurEffect">
+                    <img src="${imageSrc}" id="cropBlurImage" alt="">
+                </div>
+                <!-- Main draggable image area -->
+                <div class="crop-image-area" id="cropImageArea">
+                    <img src="${imageSrc}" class="crop-main-image" id="cropMainImage" alt="Crop preview">
+                </div>
+                <!-- Radial gradient overlay to create blur effect outside circle -->
+                <div class="crop-blur-overlay" id="cropBlurOverlay"></div>
+                <!-- Circular frame border -->
+                <div class="crop-circle-border" id="cropCircleBorder"></div>
+            </div>
+            <div class="zoom-control">
+                <label>
+                    Zoom
+                    <span id="zoomValue">100%</span>
+                </label>
+                <input type="range" class="zoom-slider" id="zoomSlider" 
+                    min="0" max="500" step="1" value="100">
+            </div>
+            <div class="crop-buttons">
+                <button class="crop-btn cancel" id="cropCancelBtn">Cancel</button>
+                <button class="crop-btn save" id="cropSaveBtn">Save Photo</button>
+            </div>
+            <p class="crop-hint"></p>
+        </div>
+    `;
+    
+    document.body.appendChild(modalOverlay);
+    
+    // Initialize the crop functionality
+    initializeCropModal();
+}
+
+// Initialize crop modal interactions
+function initializeCropModal() {
+    const container = document.getElementById('cropImageArea');
+    const image = document.getElementById('cropMainImage');
+    const mainContainer = document.getElementById('cropMainContainer');
+    const blurImage = document.getElementById('cropBlurImage');
+    const circleBorder = document.getElementById('cropCircleBorder');
+    const zoomSlider = document.getElementById('zoomSlider');
+    const zoomValue = document.getElementById('zoomValue');
+    const cancelBtn = document.getElementById('cropCancelBtn');
+    const saveBtn = document.getElementById('cropSaveBtn');
+    const modalOverlay = document.getElementById('imageCropModalOverlay');
+    
+    if (!container || !image || !mainContainer || !zoomSlider || !zoomValue || !cancelBtn || !saveBtn || !modalOverlay) {
+        return;
+    }
+    
+    const syncContainerMetrics = function() {
+        cropState.containerWidth = mainContainer.clientWidth || mainContainer.offsetWidth || 500;
+        cropState.containerHeight = mainContainer.clientHeight || mainContainer.offsetHeight || 350;
+    };
+    syncContainerMetrics();
+    
+    // Initialize image position when it loads
+    const initImage = function() {
+        cropState.imageWidth = image.naturalWidth;
+        cropState.imageHeight = image.naturalHeight;
+        
+        if (!cropState.imageWidth || !cropState.imageHeight) return;
+        
+        syncContainerMetrics();
+        const circleDiameter = (circleBorder && circleBorder.offsetWidth) || 200;
+        
+        // Base fit: image always covers the crop circle at 100% zoom.
+        const baseScale = Math.max(
+            circleDiameter / cropState.imageWidth,
+            circleDiameter / cropState.imageHeight
+        );
+        cropState.renderWidth = cropState.imageWidth * baseScale;
+        cropState.renderHeight = cropState.imageHeight * baseScale;
+        
+        cropState.scale = 1;
+        zoomSlider.value = 100;
+        zoomValue.textContent = '100%';
+        
+        // Center the image
+        cropState.translateX = (cropState.containerWidth - cropState.renderWidth) / 2;
+        cropState.translateY = (cropState.containerHeight - cropState.renderHeight) / 2;
+        
+        image.style.width = `${cropState.renderWidth}px`;
+        image.style.height = `${cropState.renderHeight}px`;
+        if (blurImage) {
+            blurImage.style.width = `${cropState.renderWidth}px`;
+            blurImage.style.height = `${cropState.renderHeight}px`;
+        }
+        
+        updateImageTransform();
+    };
+    
+    if (image.complete) {
+        initImage();
+    } else {
+        image.onload = initImage;
+    }
+    
+    // Drag functionality (mouse + touch via pointer events)
+    const startDrag = function(e) {
+        if (e.button !== undefined && e.button !== 0) return;
+        e.preventDefault();
+        cropState.isDragging = true;
+        cropState.dragPointerId = e.pointerId;
+        
+        const clientX = e.clientX;
+        const clientY = e.clientY;
+        
+        cropState.startX = clientX - cropState.translateX;
+        cropState.startY = clientY - cropState.translateY;
+        
+        mainContainer.style.cursor = 'grabbing';
+        if (mainContainer.setPointerCapture) {
+            mainContainer.setPointerCapture(e.pointerId);
+        }
+    };
+    
+    const doDrag = function(e) {
+        if (!cropState.isDragging) return;
+        if (cropState.dragPointerId !== null && e.pointerId !== cropState.dragPointerId) return;
+        e.preventDefault();
+        
+        const clientX = e.clientX;
+        const clientY = e.clientY;
+        
+        // Keep drag state independent from zoom state.
+        cropState.translateX = clientX - cropState.startX;
+        cropState.translateY = clientY - cropState.startY;
+        
+        updateImageTransform();
+    };
+    
+    const endDrag = function(e) {
+        if (cropState.dragPointerId !== null && e.pointerId !== cropState.dragPointerId) return;
+        cropState.isDragging = false;
+        cropState.dragPointerId = null;
+        mainContainer.style.cursor = 'grab';
+    };
+    
+    mainContainer.style.cursor = 'grab';
+    container.addEventListener('pointerdown', startDrag);
+    window.addEventListener('pointermove', doDrag, { passive: false });
+    window.addEventListener('pointerup', endDrag);
+    window.addEventListener('pointercancel', endDrag);
+    
+    // Zoom updates scale only, preserving translateX/translateY.
+    const onZoomInput = function() {
+        const sliderValue = parseFloat(this.value);
+        const newScale = Math.max(0.05, sliderValue / 100);
+        const previousScale = cropState.scale || 1;
+        if (!isFinite(newScale) || !isFinite(previousScale) || previousScale <= 0) return;
+        
+        const centerX = cropState.containerWidth / 2;
+        const centerY = cropState.containerHeight / 2;
+        
+        const currentCenterX = cropState.translateX + (cropState.renderWidth * previousScale) / 2;
+        const currentCenterY = cropState.translateY + (cropState.renderHeight * previousScale) / 2;
+        
+        const offsetX = currentCenterX - centerX;
+        const offsetY = currentCenterY - centerY;
+        
+        const zoomRatio = newScale / previousScale;
+        const newOffsetX = offsetX * zoomRatio;
+        const newOffsetY = offsetY * zoomRatio;
+        
+        cropState.translateX = centerX - (cropState.renderWidth * newScale) / 2 + newOffsetX;
+        cropState.translateY = centerY - (cropState.renderHeight * newScale) / 2 + newOffsetY;
+        
+        cropState.scale = newScale;
+        zoomValue.textContent = `${Math.round(sliderValue)}%`;
+        
+        updateImageTransform();
+    };
+    zoomSlider.addEventListener('input', onZoomInput);
+    
+    // Cancel button
+    const onCancel = function() {
+        closeCropModal();
+        const avatarInput = document.getElementById('avatarInput');
+        if (avatarInput) {
+            avatarInput.value = '';
+        }
+    };
+    cancelBtn.addEventListener('click', onCancel);
+    
+    // Save button
+    const onSave = async function() {
+        const croppedDataUrl = cropImage();
+        if (croppedDataUrl) {
+            await applyCroppedAvatar(croppedDataUrl);
+            closeCropModal();
+        }
+    };
+    saveBtn.addEventListener('click', onSave);
+    
+    // Close on overlay click
+    const onOverlayClick = function(e) {
+        if (e.target === modalOverlay) {
+            closeCropModal();
+            const avatarInput = document.getElementById('avatarInput');
+            if (avatarInput) {
+                avatarInput.value = '';
+            }
+        }
+    };
+    modalOverlay.addEventListener('click', onOverlayClick);
+    
+    // ESC key to close
+    const escHandler = function(e) {
+        if (e.key === 'Escape') {
+            closeCropModal();
+            const avatarInput = document.getElementById('avatarInput');
+            if (avatarInput) {
+                avatarInput.value = '';
+            }
+        }
+    };
+    document.addEventListener('keydown', escHandler);
+    
+    const onWindowResize = function() {
+        syncContainerMetrics();
+    };
+    window.addEventListener('resize', onWindowResize);
+    
+    cropState.teardown = function() {
+        container.removeEventListener('pointerdown', startDrag);
+        window.removeEventListener('pointermove', doDrag);
+        window.removeEventListener('pointerup', endDrag);
+        window.removeEventListener('pointercancel', endDrag);
+        zoomSlider.removeEventListener('input', onZoomInput);
+        cancelBtn.removeEventListener('click', onCancel);
+        saveBtn.removeEventListener('click', onSave);
+        modalOverlay.removeEventListener('click', onOverlayClick);
+        document.removeEventListener('keydown', escHandler);
+        window.removeEventListener('resize', onWindowResize);
+    };
+}
+
+// Update image transform
+function updateImageTransform() {
+    const image = document.getElementById('cropMainImage');
+    const blurImage = document.getElementById('cropBlurImage');
+    
+    if (image) {
+        const transform = `translate(${cropState.translateX}px, ${cropState.translateY}px) scale(${cropState.scale})`;
+        image.style.transform = transform;
+        if (blurImage) {
+            blurImage.style.transform = transform;
         }
     }
 }
 
-// Handle avatar upload
-function handleAvatarUpload(input) {
-    const file = input.files[0];
-    if (file) {
-        if (file.size > 2 * 1024 * 1024) {
-            alert('File size must be less than 2MB');
-            return;
-        }
-        
-        const reader = new FileReader();
-        reader.onload = function(e) {
-            settingsState.profile.avatar = e.target.result;
-            
-            // Update preview
-            const avatarPreview = document.getElementById('avatarPreview');
-            if (avatarPreview) {
-                avatarPreview.style.backgroundImage = `url(${e.target.result})`;
-                avatarPreview.textContent = '';
-            }
-            
-            // Save immediately
-            localStorage.setItem('ruiruProfile', JSON.stringify(settingsState.profile));
-        };
-        reader.readAsDataURL(file);
+// Crop the image to a square (circular area)
+function cropImage() {
+    const image = document.getElementById('cropMainImage');
+    const mainContainer = document.getElementById('cropMainContainer');
+    const circleBorder = document.getElementById('cropCircleBorder');
+    
+    if (!image || !mainContainer) return null;
+    
+    const containerWidth = mainContainer.offsetWidth;
+    const containerHeight = mainContainer.offsetHeight;
+    const circleDiameter = (circleBorder && circleBorder.offsetWidth) || 200;
+    const exportSize = 1024; // Preserve high detail in final avatar.
+    
+    // Create canvas for cropping
+    const canvas = document.createElement('canvas');
+    canvas.width = exportSize;
+    canvas.height = exportSize;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+    
+    // Create circular clipping path
+    ctx.beginPath();
+    ctx.arc(exportSize / 2, exportSize / 2, exportSize / 2, 0, Math.PI * 2);
+    ctx.closePath();
+    ctx.clip();
+    
+    // Map the visible crop circle to the export canvas.
+    const circleLeft = (containerWidth - circleDiameter) / 2;
+    const circleTop = (containerHeight - circleDiameter) / 2;
+    const scaleRatio = exportSize / circleDiameter;
+    
+    const imageScaledWidth = (cropState.renderWidth || cropState.imageWidth) * cropState.scale;
+    const imageScaledHeight = (cropState.renderHeight || cropState.imageHeight) * cropState.scale;
+    
+    const imageX = (cropState.translateX - circleLeft) * scaleRatio;
+    const imageY = (cropState.translateY - circleTop) * scaleRatio;
+    const imageDisplayWidth = imageScaledWidth * scaleRatio;
+    const imageDisplayHeight = imageScaledHeight * scaleRatio;
+    
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    
+    // Draw the image
+    ctx.drawImage(
+        image,
+        imageX,
+        imageY,
+        imageDisplayWidth,
+        imageDisplayHeight
+    );
+    
+    // Return as data URL
+    return canvas.toDataURL('image/jpeg', 0.92);
+}
+
+// Apply the cropped avatar
+async function applyCroppedAvatar(croppedDataUrl) {
+    if (!croppedDataUrl) return;
+
+    let croppedFile = null;
+    try {
+        croppedFile = await dataUrlToAvatarFile(croppedDataUrl);
+    } catch (e) {
+        console.warn('Failed to convert cropped avatar to file:', e);
     }
+
+    if (croppedFile) {
+        replaceAvatarInputFile(croppedFile);
+        window.pendingAvatarFile = croppedFile;
+    }
+
+    // Use existing upload flow if one exists; fallback to cropped data URL.
+    const finalAvatarRef = croppedFile
+        ? await uploadAvatarViaExistingPipeline(croppedFile, croppedDataUrl)
+        : croppedDataUrl;
+
+    settingsState.profile.avatar = finalAvatarRef;
+    updateProfileAvatarUI(finalAvatarRef);
+    persistProfileToLocalStorage();
+    await persistProfileToBackend(finalAvatarRef);
+
+    window.pendingAvatarDataUrl = finalAvatarRef;
+}
+
+// Close the crop modal
+function closeCropModal() {
+    if (typeof cropState.teardown === 'function') {
+        cropState.teardown();
+        cropState.teardown = null;
+    }
+    cropState.isDragging = false;
+    cropState.dragPointerId = null;
+    
+    const modal = document.getElementById('imageCropModalOverlay');
+    if (modal) {
+        modal.remove();
+    }
+    
+    // Clear pending data
+    window.pendingAvatarFile = null;
+    window.pendingAvatarDataUrl = null;
 }
 
 // Save Customization
@@ -2244,54 +3015,79 @@ function updateSecurity() {
 
 // Register user with Firebase
 async function registerUser(email, username, password) {
+    await authPersistenceReady;
+    const normalizedEmail = (email || '').trim();
+    const normalizedName = (username || '').trim();
+
+    let user;
     try {
-        // Create user with email and password
-        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-        const user = userCredential.user;
-        
-        // Save additional user data to Firestore
-        const userData = {
-            uid: user.uid,
-            email: email,
-            username: username,
-            createdAt: new Date().toISOString()
-        };
-        
-        await setDoc(doc(db, "users", user.uid), userData);
-        
-        return { success: true, message: "Account created successfully! Welcome, " + username };
+        const userCredential = await createUserWithEmailAndPassword(auth, normalizedEmail, password);
+        user = userCredential.user;
     } catch (error) {
         const errorCode = error.code;
-        let errorMessage = error.message;
-        
-        if (errorCode === 'auth/email-already-in-use') {
-            errorMessage = "This email is already registered. Please login instead.";
-        } else if (errorCode === 'auth/invalid-email') {
-            errorMessage = "Invalid email address format.";
-        } else if (errorCode === 'auth/weak-password') {
-            errorMessage = "Password should be at least 6 characters.";
-        }
-        
-        return { success: false, message: errorMessage };
+        const errorMessage = getAuthErrorMessage(errorCode, error.message);
+        return { success: false, message: `${errorMessage}${errorCode ? ` (Code: ${errorCode})` : ''}` };
     }
+
+    if (normalizedName) {
+        try {
+            await updateProfile(user, { displayName: normalizedName });
+        } catch (e) {
+            console.warn('Failed to set Firebase display name:', e);
+        }
+    }
+
+    try {
+        const userData = {
+            uid: user.uid,
+            email: user.email || normalizedEmail,
+            username: normalizedName,
+            avatar: user.photoURL || '',
+            profile: {
+                ...getEmptyProfileState(),
+                name: normalizedName,
+                email: user.email || normalizedEmail,
+                avatar: user.photoURL || ''
+            },
+            createdAt: new Date().toISOString(),
+            profileUpdatedAt: new Date().toISOString()
+        };
+
+        await setDoc(doc(db, "users", user.uid), userData, { merge: true });
+        await loadProfileFromBackend(user);
+    } catch (error) {
+        console.warn('Account created, but Firestore profile sync failed:', error);
+        settingsState.profile = {
+            ...getEmptyProfileState(),
+            name: normalizedName || user.displayName || '',
+            email: user.email || normalizedEmail,
+            avatar: user.photoURL || '',
+            socialLinks: { ...getEmptyProfileState().socialLinks }
+        };
+        applyProfileStateToForm();
+
+        const syncCode = error?.code ? ` (Code: ${error.code})` : '';
+        return {
+            success: true,
+            message: `Account created. Profile sync to Firestore failed${syncCode}, but you are logged in.`
+        };
+    }
+
+    return { success: true, message: "Account created successfully! Welcome, " + (normalizedName || user.email) };
 }
 
 // Login user with Firebase
 async function loginUser(email, password) {
     try {
-        const userCredential = await signInWithEmailAndPassword(auth, email, password);
+        await authPersistenceReady;
+        const normalizedEmail = (email || '').trim();
+        const userCredential = await signInWithEmailAndPassword(auth, normalizedEmail, password);
+        await loadProfileFromBackend(userCredential.user);
         return { success: true, message: "Login successful! Welcome back." };
     } catch (error) {
         const errorCode = error.code;
-        let errorMessage = error.message;
-        
-        if (errorCode === 'auth/user-not-found' || errorCode === 'auth/wrong-password') {
-            errorMessage = "Invalid email or password.";
-        } else if (errorCode === 'auth/invalid-email') {
-            errorMessage = "Invalid email address.";
-        }
-        
-        return { success: false, message: errorMessage };
+        const errorMessage = getAuthErrorMessage(errorCode, error.message);
+        return { success: false, message: `${errorMessage}${errorCode ? ` (Code: ${errorCode})` : ''}` };
     }
 }
 
@@ -2305,9 +3101,52 @@ async function logoutUser() {
     }
 }
 
+async function requestPasswordReset(email) {
+    await authPersistenceReady;
+    const normalizedEmail = (email || '').trim();
+    if (!normalizedEmail) {
+        return { success: false, message: 'Please enter your email address first.' };
+    }
+
+    try {
+        await sendPasswordResetEmail(auth, normalizedEmail, {
+            url: `${window.location.origin}/`
+        });
+        return { success: true, message: 'Password reset link sent. Check your email inbox.' };
+    } catch (error) {
+        const errorCode = error.code;
+        const errorMessage = getAuthErrorMessage(errorCode, error.message);
+        return { success: false, message: `${errorMessage}${errorCode ? ` (Code: ${errorCode})` : ''}` };
+    }
+}
+
 // Render Auth Form
 function renderAuthForm(container, action) {
     const isLogin = action === 'login';
+    const setAuthFeedback = (message, type = 'info') => {
+        const feedback = document.getElementById('authFeedback');
+        if (!feedback) {
+            alert(message);
+            return;
+        }
+
+        const colors = {
+            success: 'var(--success-color, #27ae60)',
+            error: 'var(--error-color, #e74c3c)',
+            info: 'var(--text-secondary, #666666)'
+        };
+
+        feedback.textContent = message;
+        feedback.style.color = colors[type] || colors.info;
+        feedback.style.display = 'block';
+    };
+    const toggleAuthButtons = (disabled) => {
+        const buttonIds = ['googleSignInBtn', 'loginBtn', 'registerBtn'];
+        buttonIds.forEach(id => {
+            const btn = document.getElementById(id);
+            if (btn) btn.disabled = disabled;
+        });
+    };
     
     container.innerHTML = `
         <h2><i class="fas fa-${isLogin ? 'sign-in-alt' : 'user-plus'}"></i> ${isLogin ? 'Login' : 'Register'}</h2>
@@ -2323,6 +3162,7 @@ function renderAuthForm(container, action) {
             <span style="padding:0 10px;">or</span>
             <span style="flex:1;border-bottom:1px solid #ddd;"></span>
         </div>
+        <p id="authFeedback" role="status" aria-live="polite" style="display:none;margin:8px 0 16px 0;font-size:0.9em;"></p>
         
         ${!isLogin ? `
         <div class="field">
@@ -2360,12 +3200,24 @@ function renderAuthForm(container, action) {
     
     // Add Google Sign-In event listener
     document.getElementById('googleSignInBtn')?.addEventListener('click', async () => {
-        const result = await signInWithGoogle();
-        if (result.success) {
-            alert(result.message);
-            hideJoker();
-        } else {
-            alert('Google sign-in failed: ' + result.message);
+        try {
+            toggleAuthButtons(true);
+            const result = await signInWithGoogle();
+            if (result.success && result.redirecting) {
+                setAuthFeedback(result.message, 'info');
+            } else if (result.success) {
+                setAuthFeedback(result.message, 'success');
+                showProfileAfterAuthSuccess(result.message);
+            } else {
+                setAuthFeedback('Google sign-in failed: ' + result.message, 'error');
+                alert('Google sign-in failed: ' + result.message);
+            }
+        } catch (error) {
+            const msg = getAuthErrorMessage(error?.code, error?.message);
+            setAuthFeedback(msg, 'error');
+            alert(msg);
+        } finally {
+            toggleAuthButtons(false);
         }
     });
     
@@ -2376,14 +3228,41 @@ function renderAuthForm(container, action) {
             const password = document.getElementById('authPassword')?.value;
             
             if (!email || !password) {
-                alert('Please fill in all fields');
+                setAuthFeedback('Please fill in all fields.', 'error');
                 return;
             }
-            
-            const result = await loginUser(email, password);
-            alert(result.message);
-            if (result.success) {
-                hideJoker();
+
+            try {
+                toggleAuthButtons(true);
+                const result = await loginUser(email, password);
+                setAuthFeedback(result.message, result.success ? 'success' : 'error');
+                if (result.success) {
+                    showProfileAfterAuthSuccess(result.message);
+                } else {
+                    alert(result.message);
+                }
+            } catch (error) {
+                const msg = getAuthErrorMessage(error?.code, error?.message);
+                setAuthFeedback(msg, 'error');
+                alert(msg);
+            } finally {
+                toggleAuthButtons(false);
+            }
+        });
+
+        document.getElementById('forgotPasswordLink')?.addEventListener('click', async (e) => {
+            e.preventDefault();
+            const enteredEmail = document.getElementById('authEmail')?.value?.trim();
+            try {
+                const result = await requestPasswordReset(enteredEmail);
+                setAuthFeedback(result.message, result.success ? 'success' : 'error');
+                if (!result.success) {
+                    alert(result.message);
+                }
+            } catch (error) {
+                const msg = getAuthErrorMessage(error?.code, error?.message);
+                setAuthFeedback(msg, 'error');
+                alert(msg);
             }
         });
     } else {
@@ -2394,24 +3273,35 @@ function renderAuthForm(container, action) {
             const confirmPassword = document.getElementById('authConfirmPassword')?.value;
             
             if (!email || !username || !password || !confirmPassword) {
-                alert('Please fill in all fields');
+                setAuthFeedback('Please fill in all fields.', 'error');
                 return;
             }
             
             if (password !== confirmPassword) {
-                alert('Passwords do not match');
+                setAuthFeedback('Passwords do not match.', 'error');
                 return;
             }
             
             if (password.length < 6) {
-                alert('Password must be at least 6 characters');
+                setAuthFeedback('Password must be at least 6 characters.', 'error');
                 return;
             }
-            
-            const result = await registerUser(email, username, password);
-            alert(result.message);
-            if (result.success) {
-                hideJoker();
+
+            try {
+                toggleAuthButtons(true);
+                const result = await registerUser(email, username, password);
+                setAuthFeedback(result.message, result.success ? 'success' : 'error');
+                if (result.success) {
+                    showProfileAfterAuthSuccess(result.message);
+                } else {
+                    alert(result.message);
+                }
+            } catch (error) {
+                const msg = getAuthErrorMessage(error?.code, error?.message);
+                setAuthFeedback(msg, 'error');
+                alert(msg);
+            } finally {
+                toggleAuthButtons(false);
             }
         });
     }
@@ -3027,9 +3917,21 @@ if (fetchBtn) {
 // Listen for auth state changes to update button visibility
 onAuthStateChanged(auth, async (user) => {
   console.log("Auth state changed:", user ? user.email : "No user");
+  latestProfileLoadRequestId += 1;
   
   // Update button visibility when auth state changes
   await updateConnectYouTubeButtonVisibility();
+  if (user) {
+    if (currentProfileUid !== user.uid) {
+      resetProfileState();
+      settingsState.profile.email = user.email || '';
+      applyProfileStateToForm();
+    }
+    await loadProfileFromBackend(user);
+  } else {
+    resetProfileState();
+    loadProfile();
+  }
 });
 
 // -----------------------------
@@ -3050,5 +3952,3 @@ window.isCurrentUserAdmin = isCurrentUserAdmin;
 window.isYouTubeSyncCompleted = isYouTubeSyncCompleted;
 window.shouldShowConnectYouTubeButton = shouldShowConnectYouTubeButton;
 window.updateConnectYouTubeButtonVisibility = updateConnectYouTubeButtonVisibility;
-
-

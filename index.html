@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Ruiru Media House - Viewer</title>
     <link rel="stylesheet" href="./style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
@@ -57,12 +57,12 @@
                 </div>
                 <div class="date-filter">
                     <input type="date" id="eventDateFilter" title="Filter by Event Date">
-                    <button id="clearDateFilter" title="Clear Date Filter" style="display:none;">
+                    <button id="clearDateFilter" title="Clear Date Filter" class="hidden">
                         <i class="fas fa-times"></i>
                     </button>
                 </div>
                 <div class="settings-gear-wrapper">
-                    <button id="settingsGear" class="settings-gear" aria-label="Settings" title="Settings">
+                    <button id="settingsGear" class="settings-gear" aria-label="Settings" title="Settings" onclick="document.getElementById('joker-screen').style.display='block'; document.getElementById('joker-screen').setAttribute('aria-hidden', 'false');">
                         <i class="fas fa-cog"></i>
                     </button>
                 </div>
@@ -71,7 +71,7 @@
             <main class="content-display">
                 <section id="home-section" class="content-section active">
                     <!-- Large Hero Player (empty by default) -->
-                    <div id="home-hero-player-container" style="display:none;">
+                    <div id="home-hero-player-container" class="hidden">
                         <div class="hero-player-content" id="heroPlayerContent"></div>
                     </div>
                     <div class="welcome-card">
@@ -83,7 +83,7 @@
                     <div id="homeVideoGrid" class="home-video-grid"></div>
 
                     <!-- Theater Mode Container -->
-                    <div class="theater-container" id="theaterContainer" style="display:none;">
+                    <div class="theater-container" id="theaterContainer" class="hidden">
                         <div class="player-column">
                             <div class="main-player-view" id="mainPlayerView" aria-live="polite">
                                 <!-- Player injected here -->
@@ -101,27 +101,47 @@
                 </section>
 
                 <section id="sermons-section" class="content-section">
-                    <h2>Sermons LIVE</h2>
+                    <div class="welcome-card">
+                        <div class="icon-placeholder"><i class="fas fa-church"></i></div>
+                        <h2>Sermons LIVE</h2>
+                        <p>Watch powerful sermons and teachings from our ministry.</p>
+                    </div>
                     <div id="sermons-container" class="content-list"></div>
                 </section>
 
                 <section id="entertainment-section" class="content-section">
-                    <h2>Entertainment</h2>
+                    <div class="welcome-card">
+                        <div class="icon-placeholder"><i class="fas fa-film"></i></div>
+                        <h2>Entertainment</h2>
+                        <p>Enjoy music videos, movies, and entertaining content.</p>
+                    </div>
                     <div id="entertainment-container" class="content-list"></div>
                 </section>
 
                 <section id="bible-study-section" class="content-section">
-                    <h2>Bible Study</h2>
+                    <div class="welcome-card">
+                        <div class="icon-placeholder"><i class="fas fa-book-bible"></i></div>
+                        <h2>Bible Study</h2>
+                        <p>Deepen your understanding with our Bible study materials.</p>
+                    </div>
                     <div id="bible-study-container" class="content-list"></div>
                 </section>
 
                 <section id="events-section" class="content-section">
-                    <h2>Events</h2>
+                    <div class="welcome-card">
+                        <div class="icon-placeholder"><i class="fas fa-calendar-alt"></i></div>
+                        <h2>Events</h2>
+                        <p>Stay updated with upcoming events and special programs.</p>
+                    </div>
                     <div id="events-container" class="content-list"></div>
                 </section>
 
                 <section id="announcement-section" class="content-section">
-                    <h2>Announcements</h2>
+                    <div class="welcome-card">
+                        <div class="icon-placeholder"><i class="fas fa-bullhorn"></i></div>
+                        <h2>Announcements</h2>
+                        <p>Important updates and announcements from our ministry.</p>
+                    </div>
                     <div id="announcement-container" class="content-list"></div>
                 </section>
             </main>
@@ -129,7 +149,7 @@
     </div>
 
     <!-- Joker (Settings) overlay - The Joker's Mirror Design -->
-    <div id="joker-screen" class="joker-screen" aria-hidden="true" style="display:none;">
+    <div id="joker-screen" class="joker-screen" aria-hidden="true">
         <div class="joker-split">
             <!-- Action Zone (Main content area) -->
             <div class="joker-left">
@@ -218,7 +238,7 @@
     </div>
 
     <!-- Registration Result Modal -->
-    <div id="registration-modal" class="registration-modal" aria-hidden="true" style="display:none;">
+    <div id="registration-modal" class="registration-modal hidden" aria-hidden="true">
         <div class="registration-modal-overlay"></div>
         <div class="registration-modal-content">
             <div class="registration-modal-icon" id="registration-modal-icon"></div>
@@ -228,7 +248,7 @@
         </div>
     </div>
     <!-- YouTube Connect Button - Hidden by default, shown only to admin -->
-<div class="youtube-btn-container" style="display: none;">
+<div class="youtube-btn-container hidden">
   <button id="connectYoutube">Connect YouTube</button>
 </div>
 
