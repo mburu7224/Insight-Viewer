@@ -2154,6 +2154,210 @@ input:checked + .toggle-slider:before {
     margin-top: 25px;
 }
 
+/* Launchpad */
+#launchpad-section .welcome-card {
+    opacity: 1;
+    transform: translateY(0);
+    max-height: 600px;
+    overflow: hidden;
+    transition: opacity 0.26s ease, transform 0.26s ease, max-height 0.32s ease, padding 0.32s ease, border-width 0.32s ease;
+}
+
+.launchpad-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+    gap: 16px;
+    margin-top: 24px;
+    opacity: 1;
+    transform: translateY(0);
+    max-height: 2200px;
+    overflow: hidden;
+    transition: opacity 0.26s ease, transform 0.26s ease, max-height 0.32s ease, margin-top 0.32s ease;
+}
+
+.launchpad-card {
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    background: var(--card-background);
+    padding: 12px;
+    cursor: pointer;
+    text-align: left;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.launchpad-card:hover,
+.launchpad-card.active {
+    transform: translateY(-2px);
+    border-color: var(--primary-color);
+    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
+}
+
+.launchpad-card-media {
+    width: 100%;
+    aspect-ratio: 4 / 5;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    overflow: hidden;
+    background: #f4f6f8;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.launchpad-card-media img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    object-position: center;
+    padding: 8px;
+    image-rendering: auto;
+}
+
+.launchpad-card-media i {
+    color: #8f9aa8;
+    font-size: 1.6em;
+}
+
+.launchpad-card h3 {
+    margin: 0;
+    font-size: 1em;
+    color: var(--secondary-color);
+}
+
+.launchpad-card p {
+    margin: 0;
+    font-size: 0.82em;
+    color: var(--text-secondary);
+    word-break: break-word;
+}
+
+.launchpad-viewer {
+    margin-top: 0;
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    background: var(--card-background);
+    overflow: hidden;
+    opacity: 0;
+    transform: translateY(12px);
+    max-height: 0;
+    pointer-events: none;
+    transition: opacity 0.26s ease, transform 0.26s ease, max-height 0.34s ease, margin-top 0.34s ease;
+}
+
+.launchpad-viewer-header {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    align-items: center;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.launchpad-viewer-meta {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.launchpad-viewer-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    object-fit: contain;
+    object-position: center;
+    padding: 4px;
+    background: #eef2f6;
+}
+
+.launchpad-viewer-meta h3 {
+    margin: 0;
+    font-size: 0.95em;
+}
+
+.launchpad-viewer-meta p {
+    margin: 2px 0 0;
+    font-size: 0.82em;
+    color: var(--text-secondary);
+}
+
+.launchpad-viewer-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.launchpad-info-btn {
+    width: 30px;
+    height: 30px;
+    border: 1px solid var(--border-color);
+    border-radius: 999px;
+    background: transparent;
+    color: var(--text-secondary);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: help;
+    padding: 0;
+}
+
+.launchpad-info-btn:hover {
+    color: var(--primary-color);
+    border-color: var(--primary-color);
+}
+
+#launchpadCloseBtn {
+    border: none;
+    border-radius: 8px;
+    background: var(--secondary-color);
+    color: #fff;
+    padding: 7px 12px;
+    cursor: pointer;
+    font-size: 0.85em;
+}
+
+#launchpadCloseBtn:hover {
+    background: #1e2e3e;
+}
+
+#launchpadIframe {
+    width: 100%;
+    height: 72vh;
+    border: none;
+    background: #fff;
+}
+
+#launchpad-section.plugin-open .launchpad-grid {
+    opacity: 0;
+    transform: translateY(-8px);
+    max-height: 0;
+    margin-top: 0;
+    pointer-events: none;
+}
+
+#launchpad-section.plugin-open .welcome-card {
+    opacity: 0;
+    transform: translateY(-8px);
+    max-height: 0;
+    min-height: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+    border-width: 0;
+    box-shadow: none;
+    pointer-events: none;
+}
+
+#launchpad-section.plugin-open .launchpad-viewer {
+    margin-top: 18px;
+    opacity: 1;
+    transform: translateY(0);
+    max-height: 2000px;
+    pointer-events: auto;
+}
+
 /* Theater Mode Styles - Dissolved Cage Design */
 .theater-container {
     display: flex;
@@ -3533,5 +3737,20 @@ input:checked + .toggle-slider:before {
     
     body.dark-mode .joker-mobile-icon-label {
         color: #a0a0a0;
+    }
+}
+
+@media (max-width: 768px) {
+    .launchpad-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+    }
+
+    #launchpadIframe {
+        height: 58vh;
+    }
+
+    #launchpad-section.plugin-open #launchpadIframe {
+        height: 64vh;
     }
 }

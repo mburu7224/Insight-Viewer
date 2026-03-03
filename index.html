@@ -33,8 +33,8 @@
                     <li><a href="#" class="nav-item" data-section="events">
                         <i class="fas fa-calendar-alt"></i> Events
                     </a></li>
-                    <li><a href="#" class="nav-item" data-section="announcement">
-                        <i class="fas fa-bullhorn"></i> Announcement
+                    <li><a href="#" class="nav-item" data-section="launchpad">
+                        <i class="fas fa-rocket"></i> Launchpad
                     </a></li>
                 </ul>
             </nav>
@@ -136,13 +136,43 @@
                     <div id="events-container" class="content-list"></div>
                 </section>
 
-                <section id="announcement-section" class="content-section">
+                <section id="launchpad-section" class="content-section">
                     <div class="welcome-card">
-                        <div class="icon-placeholder"><i class="fas fa-bullhorn"></i></div>
-                        <h2>Announcements</h2>
-                        <p>Important updates and announcements from our ministry.</p>
+                        <div class="icon-placeholder"><i class="fas fa-rocket"></i></div>
+                        <h2>Launchpad</h2>
+                        <p>Open hosted projects directly inside this platform without leaving the app.</p>
                     </div>
-                    <div id="announcement-container" class="content-list"></div>
+                    <div id="launchpad-container" class="launchpad-grid"></div>
+                    <div id="launchpad-viewer" class="launchpad-viewer hidden">
+                        <div class="launchpad-viewer-header">
+                            <div class="launchpad-viewer-meta">
+                                <img id="launchpadViewerIcon" alt="Plugin icon" class="launchpad-viewer-icon">
+                                <div>
+                                    <h3 id="launchpadViewerTitle">Plugin Viewer</h3>
+                                    <p id="launchpadViewerHost"></p>
+                                </div>
+                            </div>
+                            <div class="launchpad-viewer-actions">
+                                <button
+                                    id="launchpadEmbedInfoBtn"
+                                    class="launchpad-info-btn"
+                                    type="button"
+                                    aria-label="Embedding information"
+                                    title="If this plugin does not render, the host may block iframe embedding."
+                                >
+                                    <i class="fas fa-info-circle" aria-hidden="true"></i>
+                                </button>
+                                <button id="launchpadCloseBtn" type="button">Close</button>
+                            </div>
+                        </div>
+                        <iframe
+                            id="launchpadIframe"
+                            title="Launchpad internal plugin viewer"
+                            loading="lazy"
+                            sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads"
+                            referrerpolicy="no-referrer"
+                        ></iframe>
+                    </div>
                 </section>
             </main>
         </div>

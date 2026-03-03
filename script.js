@@ -17,13 +17,14 @@ const ADMIN_EMAIL = "admin@example.com"; // Replace with your actual admin email
 // Import Firebase functions from CDN
 import { initializeApp } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-app.js";
 import { getFirestore, collection, query, where, onSnapshot, doc, setDoc, getDoc, updateDoc } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-firestore.js";
-import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, sendPasswordResetEmail, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signInWithRedirect, setPersistence, browserLocalPersistence, updateProfile } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-auth.js";
+import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, sendPasswordResetEmail, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, setPersistence, browserLocalPersistence, updateProfile } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-auth.js";
 
 // Initialize Firebase app and Firestore database instance
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
 const contentCollectionRef = collection(db, "content_items");
+const launchpadPluginsCollectionRef = collection(db, "LaunchpadPlugins");
 
 async function initializeAuthSessionPersistence() {
     try {
@@ -32,7 +33,7 @@ async function initializeAuthSessionPersistence() {
         console.warn('Failed to enforce Firebase auth persistence:', e);
     }
 }
-const authPersistenceReady = initializeAuthSessionPersistence();
+initializeAuthSessionPersistence();
 
 // --- Admin Configuration ---
 const SETTINGS_DOC_ID = "app_settings"; // Single document for app settings
@@ -44,11 +45,11 @@ const SETTINGS_DOC_ID = "app_settings"; // Single document for app settings
  */
 async function signInWithGoogle() {
     try {
-        await authPersistenceReady;
         const provider = new GoogleAuthProvider();
-        // Use default Google scopes for authentication only.
-        provider.setCustomParameters({ prompt: 'select_account' });
-
+        // Add scopes if needed
+        provider.addScope('https://www.googleapis.com/auth/youtube.readonly');
+        
+        // Sign in with popup
         const result = await signInWithPopup(auth, provider);
         const user = result.user;
         await loadProfileFromBackend(user);
@@ -58,40 +59,9 @@ async function signInWithGoogle() {
         // Return success
         return { success: true, message: `Welcome, ${user.displayName || user.email}!` };
     } catch (error) {
-        if (error?.code === 'auth/popup-blocked' || error?.code === 'auth/cancelled-popup-request') {
-            try {
-                const provider = new GoogleAuthProvider();
-                provider.setCustomParameters({ prompt: 'select_account' });
-                await signInWithRedirect(auth, provider);
-                return { success: true, redirecting: true, message: 'Redirecting to Google sign-in...' };
-            } catch (redirectError) {
-                console.error('Google sign-in redirect error:', redirectError);
-                return { success: false, message: getAuthErrorMessage(redirectError?.code, redirectError?.message) };
-            }
-        }
         console.error('Google sign-in error:', error);
-        return { success: false, message: getAuthErrorMessage(error?.code, error?.message) };
+        return { success: false, message: error.message };
     }
-}
-
-function getAuthErrorMessage(errorCode, fallbackMessage) {
-    const map = {
-        'auth/invalid-email': 'Invalid email address format.',
-        'auth/user-not-found': 'No account found with that email.',
-        'auth/wrong-password': 'Invalid email or password.',
-        'auth/invalid-credential': 'Invalid email or password.',
-        'auth/email-already-in-use': 'This email is already registered. Please login instead.',
-        'auth/weak-password': 'Password should be at least 6 characters.',
-        'auth/network-request-failed': 'Network error. Check your internet connection and try again.',
-        'auth/too-many-requests': 'Too many attempts. Please wait a few minutes and try again.',
-        'auth/operation-not-allowed': 'Email/Password sign-in is disabled in Firebase Authentication settings.',
-        'auth/configuration-not-found': 'Authentication configuration is incomplete in Firebase project settings.',
-        'auth/popup-closed-by-user': 'Google sign-in popup was closed before completing sign-in.',
-        'auth/popup-blocked': 'Popup blocked by browser. Allow popups for this site.',
-        'auth/cancelled-popup-request': 'Sign-in popup request was cancelled. Try again.',
-        'auth/unauthorized-domain': 'Current domain is not authorized in Firebase Authentication settings.'
-    };
-    return map[errorCode] || fallbackMessage || 'Authentication failed. Please try again.';
 }
 
 /**
@@ -190,6 +160,11 @@ let currentSearchTerm = '';
 let currentFilterDate = null; // Stores the selected date filter (YYYY-MM-DD)
 let autoplayEnabled = true; // Auto-play next video in playlist
 let currentPlaylist = []; // Store current playlist items
+let launchpadPluginsUnsubscribe = null;
+let launchpadPluginsCache = [];
+let launchpadActivePluginId = null;
+let launchpadSearchTerm = '';
+let launchpadViewerHideTimer = null;
 
 /**
  * Pause all playing media on the page (HTML5 video/audio and YouTube iframes).
@@ -218,43 +193,6 @@ function pauseAllMedia() {
             }
         } catch (e) { /* ignore cross-origin issues gracefully */ }
     });
-}
-
-function hideJokerOverlay() {
-    const jokerScreen = document.getElementById('joker-screen');
-    const settingsGear = document.getElementById('settingsGear');
-    if (!jokerScreen) return;
-    jokerScreen.setAttribute('aria-hidden', 'true');
-    jokerScreen.style.display = 'none';
-    document.body.style.overflow = '';
-    settingsGear && settingsGear.focus();
-}
-
-function showProfileAfterAuthSuccess(message) {
-    if (message) {
-        alert(message);
-    }
-
-    const desktopProfileBtn = document.querySelector('.joker-cmd[data-action="profile"]');
-    if (desktopProfileBtn) {
-        desktopProfileBtn.click();
-        return;
-    }
-
-    const mobileProfileBtn = document.querySelector('.joker-mobile-icon-container[data-action="profile"]');
-    if (mobileProfileBtn) {
-        mobileProfileBtn.click();
-        return;
-    }
-
-    // Fallback: render profile directly if menu buttons are not available.
-    const jokerActionArea = document.getElementById('jokerActionArea');
-    if (!jokerActionArea) return;
-    jokerActionArea.innerHTML = '';
-    const container = document.createElement('div');
-    container.className = 'joker-action joker-action-profile';
-    container.appendChild(renderProfileSection());
-    jokerActionArea.appendChild(container);
 }
 
 /**
@@ -531,9 +469,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
 
+            if (activeSection !== 'launchpad') {
+                closeLaunchpadViewer();
+            }
+
             // Load content for the selected section
             if (activeSection === 'home') {
                 loadHomeVideos();
+            } else if (activeSection === 'launchpad') {
+                loadLaunchpadPlugins(currentSearchTerm);
             } else {
                 loadContentFirebase(activeSection, currentSearchTerm, currentFilterDate);
             }
@@ -543,7 +487,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Search Functionality ---
     searchInput.addEventListener('input', () => {
         currentSearchTerm = searchInput.value.trim();
-        if (activeSection !== 'home') {
+        if (activeSection === 'launchpad') {
+            loadLaunchpadPlugins(currentSearchTerm);
+        } else if (activeSection !== 'home') {
             loadContentFirebase(activeSection, currentSearchTerm, currentFilterDate);
         }
     });
@@ -557,7 +503,7 @@ document.addEventListener('DOMContentLoaded', () => {
             clearDateFilterButton.style.display = 'none'; // Hide clear button
         }
 
-        if (activeSection !== 'home') {
+        if (activeSection !== 'home' && activeSection !== 'launchpad') {
             loadContentFirebase(activeSection, currentSearchTerm, currentFilterDate);
         }
     });
@@ -566,7 +512,7 @@ document.addEventListener('DOMContentLoaded', () => {
         eventDateFilterInput.value = '';
         currentFilterDate = null;
         clearDateFilterButton.style.display = 'none';
-        if (activeSection !== 'home') {
+        if (activeSection !== 'home' && activeSection !== 'launchpad') {
             loadContentFirebase(activeSection, currentSearchTerm, currentFilterDate);
         }
     });
@@ -601,6 +547,9 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Initialize autoplay functionality
     initializeAutoplay();
+
+    // Initialize Launchpad viewer controls
+    initializeLaunchpadViewer();
     
     // Initialize Joker Settings (Phase 2-5)
     initJokerSettings();
@@ -1281,6 +1230,258 @@ function createCloseButton(label = 'Close') {
     return btn;
 }
 
+function normalizeLaunchpadUrl(rawUrl) {
+    if (!rawUrl) return '';
+    let url = rawUrl.trim();
+    if (!/^https?:\/\//i.test(url)) {
+        url = `https://${url}`;
+    }
+    try {
+        const parsed = new URL(url);
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return '';
+        return parsed.toString();
+    } catch (error) {
+        return '';
+    }
+}
+
+function normalizeLaunchpadImageUrl(rawUrl) {
+    const normalized = normalizeLaunchpadUrl(rawUrl);
+    if (!normalized) return '';
+
+    try {
+        const parsed = new URL(normalized);
+        const hostname = parsed.hostname.replace(/^www\./i, '').toLowerCase();
+        if (hostname !== 'drive.google.com') return normalized;
+
+        const filePathMatch = parsed.pathname.match(/\/file\/d\/([^/]+)/i);
+        let fileId = filePathMatch ? filePathMatch[1] : '';
+        if (!fileId) {
+            fileId = parsed.searchParams.get('id') || '';
+        }
+
+        if (!fileId) return normalized;
+        return `https://drive.google.com/uc?export=view&id=${encodeURIComponent(fileId)}`;
+    } catch (error) {
+        return normalized;
+    }
+}
+
+function launchpadHostLabel(url) {
+    try {
+        return new URL(url).hostname.replace(/^www\./i, '');
+    } catch (error) {
+        return 'Unknown Host';
+    }
+}
+
+function initializeLaunchpadViewer() {
+    const closeBtn = document.getElementById('launchpadCloseBtn');
+    if (closeBtn && !closeBtn.dataset.bound) {
+        closeBtn.dataset.bound = 'true';
+        closeBtn.addEventListener('click', () => {
+            closeLaunchpadViewer();
+        });
+    }
+}
+
+function setLaunchpadFocusMode(isFocused) {
+    const section = document.getElementById('launchpad-section');
+    const container = document.getElementById('launchpad-container');
+    const viewer = document.getElementById('launchpad-viewer');
+    if (!section || !container || !viewer) return;
+
+    if (launchpadViewerHideTimer) {
+        clearTimeout(launchpadViewerHideTimer);
+        launchpadViewerHideTimer = null;
+    }
+
+    if (isFocused) {
+        viewer.classList.remove('hidden');
+        container.setAttribute('aria-hidden', 'true');
+        requestAnimationFrame(() => {
+            section.classList.add('plugin-open');
+        });
+        return;
+    }
+
+    section.classList.remove('plugin-open');
+    container.removeAttribute('aria-hidden');
+    launchpadViewerHideTimer = setTimeout(() => {
+        if (!section.classList.contains('plugin-open')) {
+            viewer.classList.add('hidden');
+        }
+    }, 320);
+}
+
+function closeLaunchpadViewer() {
+    const viewer = document.getElementById('launchpad-viewer');
+    const iframe = document.getElementById('launchpadIframe');
+    if (!viewer || !iframe) return;
+
+    setLaunchpadFocusMode(false);
+    iframe.src = 'about:blank';
+    launchpadActivePluginId = null;
+
+    document.querySelectorAll('.launchpad-card').forEach((card) => {
+        card.classList.remove('active');
+    });
+}
+
+function openLaunchpadPlugin(plugin) {
+    const viewer = document.getElementById('launchpad-viewer');
+    const iframe = document.getElementById('launchpadIframe');
+    const title = document.getElementById('launchpadViewerTitle');
+    const host = document.getElementById('launchpadViewerHost');
+    const icon = document.getElementById('launchpadViewerIcon');
+
+    if (!viewer || !iframe || !title || !host || !icon) return;
+
+    const pluginUrl = plugin.projectUrl || plugin.url || '';
+    const pluginTitle = plugin.title || plugin.name || '';
+    const pluginImage = normalizeLaunchpadImageUrl(plugin.imageUrl || plugin.image || '');
+    const normalizedUrl = normalizeLaunchpadUrl(pluginUrl);
+    if (!normalizedUrl) {
+        console.warn('Invalid Launchpad plugin URL:', pluginUrl);
+        return;
+    }
+
+    launchpadActivePluginId = plugin.id;
+
+    title.textContent = pluginTitle || 'Untitled Plugin';
+    host.textContent = launchpadHostLabel(normalizedUrl);
+    if (pluginImage) {
+        icon.src = pluginImage;
+    } else {
+        icon.src = 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2272%22 height=%2272%22%3E%3Crect width=%22100%25%22 height=%22100%25%22 fill=%22%23eef2f6%22/%3E%3Ctext x=%2250%25%22 y=%2255%25%22 font-size=%2232%22 fill=%22%236b7280%22 text-anchor=%22middle%22 dominant-baseline=%22middle%22%3E%2B%3C/text%3E%3C/svg%3E';
+    }
+
+    setLaunchpadFocusMode(true);
+    iframe.src = normalizedUrl;
+    try {
+        viewer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } catch (error) {
+        // Ignore scroll issues in older/embedded browsers.
+    }
+
+    document.querySelectorAll('.launchpad-card').forEach((card) => {
+        const isActive = card.dataset.pluginId === plugin.id;
+        card.classList.toggle('active', isActive);
+    });
+}
+
+function renderLaunchpadCards(filteredPlugins) {
+    const container = document.getElementById('launchpad-container');
+    if (!container) return;
+
+    container.innerHTML = '';
+
+    if (!filteredPlugins.length) {
+        const noDataText = launchpadSearchTerm
+            ? `No Launchpad plugins match "${escapeHtml(launchpadSearchTerm)}".`
+            : 'No Launchpad plugins available yet.';
+        container.innerHTML = `<p class="text-center-message">${noDataText}</p>`;
+        return;
+    }
+
+    filteredPlugins.forEach((plugin) => {
+        const pluginTitle = plugin.title || plugin.name || '';
+        const pluginImage = normalizeLaunchpadImageUrl(plugin.imageUrl || plugin.image || '');
+        const pluginUrl = plugin.projectUrl || plugin.url || '';
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'launchpad-card';
+        button.dataset.pluginId = plugin.id;
+
+        const mediaHtml = pluginImage
+            ? `<img src="${escapeHtml(pluginImage)}" alt="${escapeHtml(pluginTitle || 'Plugin icon')}">`
+            : '<i class="fas fa-book"></i>';
+
+        const hostLabel = launchpadHostLabel(pluginUrl);
+        button.innerHTML = `
+            <div class="launchpad-card-media">${mediaHtml}</div>
+            <h3>${escapeHtml(pluginTitle || 'Untitled Plugin')}</h3>
+            <p>${escapeHtml(hostLabel)}</p>
+        `;
+
+        button.addEventListener('click', () => {
+            openLaunchpadPlugin(plugin);
+        });
+
+        if (plugin.id === launchpadActivePluginId) {
+            button.classList.add('active');
+        }
+
+        container.appendChild(button);
+    });
+}
+
+function applyLaunchpadFilter(searchTerm = '') {
+    launchpadSearchTerm = searchTerm || '';
+    const normalizedSearch = launchpadSearchTerm.toLowerCase();
+    const filtered = launchpadPluginsCache.filter((plugin) => {
+        const pluginTitle = plugin.title || plugin.name || '';
+        const pluginUrl = plugin.projectUrl || plugin.url || '';
+        const hostLabel = launchpadHostLabel(pluginUrl);
+        return !normalizedSearch ||
+            pluginTitle.toLowerCase().includes(normalizedSearch) ||
+            pluginUrl.toLowerCase().includes(normalizedSearch) ||
+            hostLabel.toLowerCase().includes(normalizedSearch);
+    });
+
+    renderLaunchpadCards(filtered);
+}
+
+function loadLaunchpadPlugins(searchTerm = '') {
+    const container = document.getElementById('launchpad-container');
+    if (!container) return;
+
+    launchpadSearchTerm = searchTerm || '';
+
+    if (!launchpadPluginsUnsubscribe) {
+        container.innerHTML = '<p class="text-center-message">Loading Launchpad plugins...</p>';
+
+        launchpadPluginsUnsubscribe = onSnapshot(query(launchpadPluginsCollectionRef), (snapshot) => {
+            launchpadPluginsCache = [];
+
+            snapshot.forEach((docSnapshot) => {
+                const data = docSnapshot.data() || {};
+                launchpadPluginsCache.push({
+                    id: docSnapshot.id,
+                    title: data.title || data.name || '',
+                    name: data.title || data.name || '',
+                    imageUrl: normalizeLaunchpadImageUrl(data.imageUrl || data.image || ''),
+                    image: normalizeLaunchpadImageUrl(data.imageUrl || data.image || ''),
+                    projectUrl: normalizeLaunchpadUrl(data.projectUrl || data.url || '') || (data.projectUrl || data.url || ''),
+                    url: normalizeLaunchpadUrl(data.projectUrl || data.url || '') || (data.projectUrl || data.url || ''),
+                    createdBy: data.createdBy || '',
+                    timestamp: data.timestamp || null
+                });
+            });
+
+            launchpadPluginsCache.sort((a, b) => {
+                const tsA = a.timestamp ? a.timestamp.toDate() : new Date(0);
+                const tsB = b.timestamp ? b.timestamp.toDate() : new Date(0);
+                return tsB - tsA;
+            });
+
+            applyLaunchpadFilter(launchpadSearchTerm);
+
+            if (launchpadActivePluginId) {
+                const activePlugin = launchpadPluginsCache.find((item) => item.id === launchpadActivePluginId);
+                if (!activePlugin) {
+                    closeLaunchpadViewer();
+                }
+            }
+        }, (error) => {
+            console.error('Error loading Launchpad plugins:', error);
+            container.innerHTML = '<p class="text-center-message">Error loading Launchpad plugins.</p>';
+        });
+    } else {
+        applyLaunchpadFilter(launchpadSearchTerm);
+    }
+}
+
 /**
  * Loads and displays content for a specific section from Firestore.
  * Includes search, sorting, and handles compatibility with old documents.
@@ -1289,6 +1490,11 @@ function createCloseButton(label = 'Close') {
  * @param {string} [filterDate=null] - Optional date string (YYYY-MM-DD) to filter content by eventDate.
  */
 function loadContentFirebase(section, searchTerm = '', filterDate = null) {
+    if (section === 'launchpad') {
+        loadLaunchpadPlugins(searchTerm);
+        return;
+    }
+
     const contentContainer = document.getElementById(`${section}-container`);
     if (!contentContainer) {
         console.warn(`Content container for section "${section}" not found.`);
@@ -1406,7 +1612,7 @@ function loadContentFirebase(section, searchTerm = '', filterDate = null) {
 }
 
 /**
- * Populate video grid for any section (sermons, entertainment, bible-study, events, announcement)
+ * Populate video grid for any media section (sermons, entertainment, bible-study, events)
  * Similar to loadHomeVideos but for other sections
  */
 function populateVideoGrid(section, docs) {
@@ -1655,8 +1861,6 @@ const settingsState = {
 
 const LEGACY_PROFILE_STORAGE_KEY = 'ruiruProfile';
 const GUEST_PROFILE_STORAGE_KEY = 'ruiruProfileGuest';
-let currentProfileUid = null;
-let latestProfileLoadRequestId = 0;
 
 function getEmptyProfileState() {
     return {
@@ -2357,16 +2561,7 @@ function applyProfileStateToForm() {
     const bioField = document.getElementById('profileBio');
 
     if (nameField) nameField.value = settingsState.profile.name || '';
-    if (emailField) {
-        emailField.value = auth.currentUser?.email || settingsState.profile.email || '';
-        const isAuthenticated = Boolean(auth.currentUser);
-        emailField.readOnly = isAuthenticated;
-        if (isAuthenticated) {
-            emailField.setAttribute('title', 'Email is managed by Firebase Authentication.');
-        } else {
-            emailField.removeAttribute('title');
-        }
-    }
+    if (emailField) emailField.value = auth.currentUser?.email || settingsState.profile.email || '';
     if (ministryField) ministryField.value = settingsState.profile.ministry || '';
     if (bioField) bioField.value = settingsState.profile.bio || '';
 
@@ -2383,7 +2578,6 @@ function applyProfileStateToForm() {
 
 function resetProfileState() {
     settingsState.profile = getEmptyProfileState();
-    currentProfileUid = null;
     applyProfileStateToForm();
 }
 
@@ -2408,14 +2602,12 @@ function persistProfileToLocalStorage() {
     localStorage.setItem(GUEST_PROFILE_STORAGE_KEY, JSON.stringify(guestProfile));
 }
 
-async function persistProfileToBackend(avatarRef, expectedUid = auth?.currentUser?.uid) {
-    const currentUser = auth?.currentUser;
-    if (!currentUser) return avatarRef;
-    if (expectedUid && currentUser.uid !== expectedUid) return avatarRef;
+async function persistProfileToBackend(avatarRef) {
+    if (!auth?.currentUser) return avatarRef;
 
     const resolvedAvatar = avatarRef || settingsState.profile.avatar || '';
-    const resolvedEmail = currentUser.email || settingsState.profile.email || '';
-    const resolvedName = settingsState.profile.name || currentUser.displayName || '';
+    const resolvedEmail = auth.currentUser.email || settingsState.profile.email || '';
+    const resolvedName = settingsState.profile.name || auth.currentUser.displayName || '';
     const safeSocial = {
         ...getEmptyProfileState().socialLinks,
         ...(settingsState.profile.socialLinks || {})
@@ -2431,9 +2623,9 @@ async function persistProfileToBackend(avatarRef, expectedUid = auth?.currentUse
     };
 
     try {
-        const userRef = doc(db, "users", currentUser.uid);
+        const userRef = doc(db, "users", auth.currentUser.uid);
         const payload = {
-            uid: currentUser.uid,
+            uid: auth.currentUser.uid,
             email: resolvedEmail,
             username: resolvedName,
             avatar: resolvedAvatar,
@@ -2447,7 +2639,6 @@ async function persistProfileToBackend(avatarRef, expectedUid = auth?.currentUse
             profileUpdatedAt: new Date().toISOString()
         };
         await setDoc(userRef, payload, { merge: true });
-        currentProfileUid = currentUser.uid;
     } catch (e) {
         console.warn('Failed to sync profile to backend:', e);
     }
@@ -2455,54 +2646,33 @@ async function persistProfileToBackend(avatarRef, expectedUid = auth?.currentUse
 }
 
 async function loadProfileFromBackend(user) {
-    if (!user?.uid) return;
-    const requestedUid = user.uid;
-    const requestId = ++latestProfileLoadRequestId;
-    const baseProfile = getEmptyProfileState();
-
+    if (!user) return;
     try {
-        const snap = await getDoc(doc(db, "users", requestedUid));
-        if (requestId !== latestProfileLoadRequestId || auth.currentUser?.uid !== requestedUid) {
-            return;
-        }
-
+        const snap = await getDoc(doc(db, "users", user.uid));
         const data = snap.exists() ? (snap.data() || {}) : {};
         const backendProfile = (data.profile && typeof data.profile === 'object') ? data.profile : {};
-        const resolvedSocialLinks = {
-            ...baseProfile.socialLinks,
-            ...(backendProfile.socialLinks || {})
-        };
-
-        const resolvedProfile = {
-            ...baseProfile,
-            ...backendProfile,
-            name: backendProfile.name || data.username || user.displayName || '',
-            email: user.email || backendProfile.email || data.email || '',
-            avatar: backendProfile.avatar || data.avatar || user.photoURL || '',
-            socialLinks: resolvedSocialLinks
-        };
-
-        settingsState.profile = resolvedProfile;
-        currentProfileUid = requestedUid;
-        localStorage.removeItem(GUEST_PROFILE_STORAGE_KEY);
-        localStorage.removeItem(LEGACY_PROFILE_STORAGE_KEY);
-        applyProfileStateToForm();
-        await persistProfileToBackend(resolvedProfile.avatar, requestedUid);
-    } catch (e) {
-        console.warn('Failed to load profile from backend:', e);
-        if (requestId !== latestProfileLoadRequestId || auth.currentUser?.uid !== requestedUid) {
-            return;
-        }
+        const baseProfile = getEmptyProfileState();
 
         settingsState.profile = {
             ...baseProfile,
-            name: user.displayName || '',
-            email: user.email || '',
-            avatar: user.photoURL || '',
-            socialLinks: { ...baseProfile.socialLinks }
+            ...settingsState.profile,
+            ...backendProfile,
+            name: backendProfile.name || data.username || user.displayName || settingsState.profile.name || '',
+            email: user.email || backendProfile.email || data.email || settingsState.profile.email || '',
+            avatar: backendProfile.avatar || data.avatar || user.photoURL || settingsState.profile.avatar || '',
+            socialLinks: {
+                ...baseProfile.socialLinks,
+                ...settingsState.profile.socialLinks,
+                ...(backendProfile.socialLinks || {})
+            }
         };
-        currentProfileUid = requestedUid;
+
+        await persistProfileToBackend(settingsState.profile.avatar);
+        localStorage.removeItem(GUEST_PROFILE_STORAGE_KEY);
+        localStorage.removeItem(LEGACY_PROFILE_STORAGE_KEY);
         applyProfileStateToForm();
+    } catch (e) {
+        console.warn('Failed to load profile from backend:', e);
     }
 }
 
@@ -3015,79 +3185,73 @@ function updateSecurity() {
 
 // Register user with Firebase
 async function registerUser(email, username, password) {
-    await authPersistenceReady;
-    const normalizedEmail = (email || '').trim();
-    const normalizedName = (username || '').trim();
-
-    let user;
     try {
-        const userCredential = await createUserWithEmailAndPassword(auth, normalizedEmail, password);
-        user = userCredential.user;
-    } catch (error) {
-        const errorCode = error.code;
-        const errorMessage = getAuthErrorMessage(errorCode, error.message);
-        return { success: false, message: `${errorMessage}${errorCode ? ` (Code: ${errorCode})` : ''}` };
-    }
-
-    if (normalizedName) {
-        try {
-            await updateProfile(user, { displayName: normalizedName });
-        } catch (e) {
-            console.warn('Failed to set Firebase display name:', e);
+        // Create user with email and password
+        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+        const user = userCredential.user;
+        const normalizedName = (username || '').trim();
+        
+        if (normalizedName) {
+            try {
+                await updateProfile(user, { displayName: normalizedName });
+            } catch (e) {
+                console.warn('Failed to set Firebase display name:', e);
+            }
         }
-    }
-
-    try {
+        
+        // Save additional user data to Firestore
         const userData = {
             uid: user.uid,
-            email: user.email || normalizedEmail,
+            email: user.email || email,
             username: normalizedName,
             avatar: user.photoURL || '',
             profile: {
                 ...getEmptyProfileState(),
                 name: normalizedName,
-                email: user.email || normalizedEmail,
+                email: user.email || email,
                 avatar: user.photoURL || ''
             },
             createdAt: new Date().toISOString(),
             profileUpdatedAt: new Date().toISOString()
         };
-
+        
         await setDoc(doc(db, "users", user.uid), userData, { merge: true });
         await loadProfileFromBackend(user);
+        
+        return { success: true, message: "Account created successfully! Welcome, " + (normalizedName || user.email) };
     } catch (error) {
-        console.warn('Account created, but Firestore profile sync failed:', error);
-        settingsState.profile = {
-            ...getEmptyProfileState(),
-            name: normalizedName || user.displayName || '',
-            email: user.email || normalizedEmail,
-            avatar: user.photoURL || '',
-            socialLinks: { ...getEmptyProfileState().socialLinks }
-        };
-        applyProfileStateToForm();
-
-        const syncCode = error?.code ? ` (Code: ${error.code})` : '';
-        return {
-            success: true,
-            message: `Account created. Profile sync to Firestore failed${syncCode}, but you are logged in.`
-        };
+        const errorCode = error.code;
+        let errorMessage = error.message;
+        
+        if (errorCode === 'auth/email-already-in-use') {
+            errorMessage = "This email is already registered. Please login instead.";
+        } else if (errorCode === 'auth/invalid-email') {
+            errorMessage = "Invalid email address format.";
+        } else if (errorCode === 'auth/weak-password') {
+            errorMessage = "Password should be at least 6 characters.";
+        }
+        
+        return { success: false, message: errorMessage };
     }
-
-    return { success: true, message: "Account created successfully! Welcome, " + (normalizedName || user.email) };
 }
 
 // Login user with Firebase
 async function loginUser(email, password) {
     try {
-        await authPersistenceReady;
-        const normalizedEmail = (email || '').trim();
-        const userCredential = await signInWithEmailAndPassword(auth, normalizedEmail, password);
+        const userCredential = await signInWithEmailAndPassword(auth, email, password);
         await loadProfileFromBackend(userCredential.user);
         return { success: true, message: "Login successful! Welcome back." };
     } catch (error) {
         const errorCode = error.code;
-        const errorMessage = getAuthErrorMessage(errorCode, error.message);
-        return { success: false, message: `${errorMessage}${errorCode ? ` (Code: ${errorCode})` : ''}` };
+        let errorMessage = error.message;
+        
+        if (errorCode === 'auth/user-not-found' || errorCode === 'auth/wrong-password') {
+            errorMessage = "Invalid email or password.";
+        } else if (errorCode === 'auth/invalid-email') {
+            errorMessage = "Invalid email address.";
+        }
+        
+        return { success: false, message: errorMessage };
     }
 }
 
@@ -3102,51 +3266,29 @@ async function logoutUser() {
 }
 
 async function requestPasswordReset(email) {
-    await authPersistenceReady;
     const normalizedEmail = (email || '').trim();
     if (!normalizedEmail) {
         return { success: false, message: 'Please enter your email address first.' };
     }
 
     try {
-        await sendPasswordResetEmail(auth, normalizedEmail, {
-            url: `${window.location.origin}/`
-        });
+        await sendPasswordResetEmail(auth, normalizedEmail);
         return { success: true, message: 'Password reset link sent. Check your email inbox.' };
     } catch (error) {
         const errorCode = error.code;
-        const errorMessage = getAuthErrorMessage(errorCode, error.message);
-        return { success: false, message: `${errorMessage}${errorCode ? ` (Code: ${errorCode})` : ''}` };
+        let errorMessage = error.message;
+        if (errorCode === 'auth/user-not-found') {
+            errorMessage = 'No account found with that email.';
+        } else if (errorCode === 'auth/invalid-email') {
+            errorMessage = 'Invalid email address.';
+        }
+        return { success: false, message: errorMessage };
     }
 }
 
 // Render Auth Form
 function renderAuthForm(container, action) {
     const isLogin = action === 'login';
-    const setAuthFeedback = (message, type = 'info') => {
-        const feedback = document.getElementById('authFeedback');
-        if (!feedback) {
-            alert(message);
-            return;
-        }
-
-        const colors = {
-            success: 'var(--success-color, #27ae60)',
-            error: 'var(--error-color, #e74c3c)',
-            info: 'var(--text-secondary, #666666)'
-        };
-
-        feedback.textContent = message;
-        feedback.style.color = colors[type] || colors.info;
-        feedback.style.display = 'block';
-    };
-    const toggleAuthButtons = (disabled) => {
-        const buttonIds = ['googleSignInBtn', 'loginBtn', 'registerBtn'];
-        buttonIds.forEach(id => {
-            const btn = document.getElementById(id);
-            if (btn) btn.disabled = disabled;
-        });
-    };
     
     container.innerHTML = `
         <h2><i class="fas fa-${isLogin ? 'sign-in-alt' : 'user-plus'}"></i> ${isLogin ? 'Login' : 'Register'}</h2>
@@ -3162,7 +3304,6 @@ function renderAuthForm(container, action) {
             <span style="padding:0 10px;">or</span>
             <span style="flex:1;border-bottom:1px solid #ddd;"></span>
         </div>
-        <p id="authFeedback" role="status" aria-live="polite" style="display:none;margin:8px 0 16px 0;font-size:0.9em;"></p>
         
         ${!isLogin ? `
         <div class="field">
@@ -3200,24 +3341,12 @@ function renderAuthForm(container, action) {
     
     // Add Google Sign-In event listener
     document.getElementById('googleSignInBtn')?.addEventListener('click', async () => {
-        try {
-            toggleAuthButtons(true);
-            const result = await signInWithGoogle();
-            if (result.success && result.redirecting) {
-                setAuthFeedback(result.message, 'info');
-            } else if (result.success) {
-                setAuthFeedback(result.message, 'success');
-                showProfileAfterAuthSuccess(result.message);
-            } else {
-                setAuthFeedback('Google sign-in failed: ' + result.message, 'error');
-                alert('Google sign-in failed: ' + result.message);
-            }
-        } catch (error) {
-            const msg = getAuthErrorMessage(error?.code, error?.message);
-            setAuthFeedback(msg, 'error');
-            alert(msg);
-        } finally {
-            toggleAuthButtons(false);
+        const result = await signInWithGoogle();
+        if (result.success) {
+            alert(result.message);
+            hideJoker();
+        } else {
+            alert('Google sign-in failed: ' + result.message);
         }
     });
     
@@ -3228,42 +3357,23 @@ function renderAuthForm(container, action) {
             const password = document.getElementById('authPassword')?.value;
             
             if (!email || !password) {
-                setAuthFeedback('Please fill in all fields.', 'error');
+                alert('Please fill in all fields');
                 return;
             }
-
-            try {
-                toggleAuthButtons(true);
-                const result = await loginUser(email, password);
-                setAuthFeedback(result.message, result.success ? 'success' : 'error');
-                if (result.success) {
-                    showProfileAfterAuthSuccess(result.message);
-                } else {
-                    alert(result.message);
-                }
-            } catch (error) {
-                const msg = getAuthErrorMessage(error?.code, error?.message);
-                setAuthFeedback(msg, 'error');
-                alert(msg);
-            } finally {
-                toggleAuthButtons(false);
+            
+            const result = await loginUser(email, password);
+            alert(result.message);
+            if (result.success) {
+                hideJoker();
             }
         });
 
         document.getElementById('forgotPasswordLink')?.addEventListener('click', async (e) => {
             e.preventDefault();
             const enteredEmail = document.getElementById('authEmail')?.value?.trim();
-            try {
-                const result = await requestPasswordReset(enteredEmail);
-                setAuthFeedback(result.message, result.success ? 'success' : 'error');
-                if (!result.success) {
-                    alert(result.message);
-                }
-            } catch (error) {
-                const msg = getAuthErrorMessage(error?.code, error?.message);
-                setAuthFeedback(msg, 'error');
-                alert(msg);
-            }
+            const emailForReset = enteredEmail || window.prompt('Enter your account email for password reset:') || '';
+            const result = await requestPasswordReset(emailForReset);
+            alert(result.message);
         });
     } else {
         document.getElementById('registerBtn')?.addEventListener('click', async () => {
@@ -3273,35 +3383,24 @@ function renderAuthForm(container, action) {
             const confirmPassword = document.getElementById('authConfirmPassword')?.value;
             
             if (!email || !username || !password || !confirmPassword) {
-                setAuthFeedback('Please fill in all fields.', 'error');
+                alert('Please fill in all fields');
                 return;
             }
             
             if (password !== confirmPassword) {
-                setAuthFeedback('Passwords do not match.', 'error');
+                alert('Passwords do not match');
                 return;
             }
             
             if (password.length < 6) {
-                setAuthFeedback('Password must be at least 6 characters.', 'error');
+                alert('Password must be at least 6 characters');
                 return;
             }
-
-            try {
-                toggleAuthButtons(true);
-                const result = await registerUser(email, username, password);
-                setAuthFeedback(result.message, result.success ? 'success' : 'error');
-                if (result.success) {
-                    showProfileAfterAuthSuccess(result.message);
-                } else {
-                    alert(result.message);
-                }
-            } catch (error) {
-                const msg = getAuthErrorMessage(error?.code, error?.message);
-                setAuthFeedback(msg, 'error');
-                alert(msg);
-            } finally {
-                toggleAuthButtons(false);
+            
+            const result = await registerUser(email, username, password);
+            alert(result.message);
+            if (result.success) {
+                hideJoker();
             }
         });
     }
@@ -3917,16 +4016,10 @@ if (fetchBtn) {
 // Listen for auth state changes to update button visibility
 onAuthStateChanged(auth, async (user) => {
   console.log("Auth state changed:", user ? user.email : "No user");
-  latestProfileLoadRequestId += 1;
   
   // Update button visibility when auth state changes
   await updateConnectYouTubeButtonVisibility();
   if (user) {
-    if (currentProfileUid !== user.uid) {
-      resetProfileState();
-      settingsState.profile.email = user.email || '';
-      applyProfileStateToForm();
-    }
     await loadProfileFromBackend(user);
   } else {
     resetProfileState();
