@@ -1233,6 +1233,12 @@ function createCloseButton(label = 'Close') {
 function normalizeLaunchpadUrl(rawUrl) {
     if (!rawUrl) return '';
     let url = rawUrl.trim();
+    if (
+        (url.startsWith('"') && url.endsWith('"')) ||
+        (url.startsWith("'") && url.endsWith("'"))
+    ) {
+        url = url.slice(1, -1).trim();
+    }
     if (!/^https?:\/\//i.test(url)) {
         url = `https://${url}`;
     }
@@ -1245,6 +1251,46 @@ function normalizeLaunchpadUrl(rawUrl) {
     }
 }
 
+function extractLaunchpadGoogleDriveFileId(rawUrl) {
+    if (!rawUrl) return '';
+    const raw = String(rawUrl).trim();
+    const candidates = /^https?:\/\//i.test(raw) ? [raw] : [`https://${raw}`];
+
+    for (const candidate of candidates) {
+        try {
+            const parsed = new URL(candidate);
+            const pathname = decodeURIComponent(parsed.pathname || '');
+
+            const fromQuery =
+                parsed.searchParams.get('id') ||
+                parsed.searchParams.get('fileId') ||
+                '';
+            if (fromQuery) return fromQuery.trim();
+
+            const fileMatch = pathname.match(/\/file\/d\/([^/?#]+)/i);
+            if (fileMatch?.[1]) return fileMatch[1];
+
+            const genericMatch = pathname.match(/\/d\/([^/?#]+)/i);
+            if (genericMatch?.[1]) return genericMatch[1];
+        } catch (error) {
+            // Fall through to regex fallback.
+        }
+    }
+
+    const fallbackMatches = [
+        raw.match(/\/file\/d\/([^/?#]+)/i),
+        raw.match(/\/d\/([^/?#]+)/i),
+        raw.match(/[?&]id=([^&?#]+)/i)
+    ];
+    for (const match of fallbackMatches) {
+        if (match?.[1]) {
+            return decodeURIComponent(match[1]).trim();
+        }
+    }
+
+    return '';
+}
+
 function normalizeLaunchpadImageUrl(rawUrl) {
     const normalized = normalizeLaunchpadUrl(rawUrl);
     if (!normalized) return '';
@@ -1252,19 +1298,47 @@ function normalizeLaunchpadImageUrl(rawUrl) {
     try {
         const parsed = new URL(normalized);
         const hostname = parsed.hostname.replace(/^www\./i, '').toLowerCase();
-        if (hostname !== 'drive.google.com') return normalized;
+        const isGoogleDriveHost =
+            hostname === 'drive.google.com' ||
+            hostname === 'docs.google.com' ||
+            hostname.endsWith('.googleusercontent.com');
+        if (!isGoogleDriveHost) return normalized;
 
-        const filePathMatch = parsed.pathname.match(/\/file\/d\/([^/]+)/i);
-        let fileId = filePathMatch ? filePathMatch[1] : '';
+        const fileId = extractLaunchpadGoogleDriveFileId(normalized) || extractLaunchpadGoogleDriveFileId(rawUrl);
         if (!fileId) {
-            fileId = parsed.searchParams.get('id') || '';
+            console.warn('Could not extract Google Drive file id from Launchpad image URL:', rawUrl);
+            return normalized;
         }
-
-        if (!fileId) return normalized;
         return `https://drive.google.com/uc?export=view&id=${encodeURIComponent(fileId)}`;
     } catch (error) {
         return normalized;
     }
+}
+
+function getLaunchpadGoogleDriveImageFallbackUrls(rawUrl, normalizedUrl = '') {
+    const fileId =
+        extractLaunchpadGoogleDriveFileId(normalizedUrl) ||
+        extractLaunchpadGoogleDriveFileId(rawUrl);
+    if (!fileId) return [];
+
+    const encodedId = encodeURIComponent(fileId);
+    const candidates = [
+        normalizedUrl || normalizeLaunchpadImageUrl(rawUrl),
+        `https://drive.google.com/thumbnail?id=${encodedId}&sz=w1200`,
+        `https://lh3.googleusercontent.com/d/${encodedId}=s1200`,
+        `https://drive.google.com/uc?export=download&id=${encodedId}`
+    ];
+
+    const unique = [];
+    const seen = new Set();
+    candidates.forEach((candidate) => {
+        const normalizedCandidate = normalizeLaunchpadUrl(candidate);
+        if (!normalizedCandidate || seen.has(normalizedCandidate)) return;
+        seen.add(normalizedCandidate);
+        unique.push(normalizedCandidate);
+    });
+
+    return unique;
 }
 
 function launchpadHostLabel(url) {
@@ -1350,8 +1424,32 @@ function openLaunchpadPlugin(plugin) {
 
     title.textContent = pluginTitle || 'Untitled Plugin';
     host.textContent = launchpadHostLabel(normalizedUrl);
+    icon.onerror = null;
     if (pluginImage) {
+        const fallbackQueue = getLaunchpadGoogleDriveImageFallbackUrls(plugin.imageUrl || plugin.image || '', pluginImage);
+        const initialSrc = normalizeLaunchpadUrl(pluginImage);
+        const retryQueue = fallbackQueue.filter((candidate) => candidate !== initialSrc);
         icon.src = pluginImage;
+        icon.onerror = () => {
+            if (retryQueue.length) {
+                const nextUrl = retryQueue.shift();
+                console.warn('[Launchpad][Viewer] Retrying icon image with Google Drive fallback URL.', {
+                    pluginId: plugin.id,
+                    previousUrl: icon.currentSrc || pluginImage,
+                    retryUrl: nextUrl
+                });
+                icon.src = nextUrl;
+                return;
+            }
+
+            console.error('[Launchpad][Viewer] Failed to load plugin icon image.', {
+                pluginId: plugin.id,
+                imageUrl: pluginImage,
+                note: 'Possible causes: invalid URL, Google Drive permissions, CORS/host restrictions.'
+            });
+            icon.onerror = null;
+            icon.src = 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2272%22 height=%2272%22%3E%3Crect width=%22100%25%22 height=%22100%25%22 fill=%22%23eef2f6%22/%3E%3Ctext x=%2250%25%22 y=%2255%25%22 font-size=%2232%22 fill=%22%236b7280%22 text-anchor=%22middle%22 dominant-baseline=%22middle%22%3E%2B%3C/text%3E%3C/svg%3E';
+        };
     } else {
         icon.src = 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2272%22 height=%2272%22%3E%3Crect width=%22100%25%22 height=%22100%25%22 fill=%22%23eef2f6%22/%3E%3Ctext x=%2250%25%22 y=%2255%25%22 font-size=%2232%22 fill=%22%236b7280%22 text-anchor=%22middle%22 dominant-baseline=%22middle%22%3E%2B%3C/text%3E%3C/svg%3E';
     }
@@ -1388,6 +1486,11 @@ function renderLaunchpadCards(filteredPlugins) {
         const pluginTitle = plugin.title || plugin.name || '';
         const pluginImage = normalizeLaunchpadImageUrl(plugin.imageUrl || plugin.image || '');
         const pluginUrl = plugin.projectUrl || plugin.url || '';
+        console.debug('[Launchpad][Frontend][Render] Plugin image URL:', {
+            pluginId: plugin.id,
+            storedImageUrl: plugin.imageUrl || plugin.image || '',
+            normalizedImageUrl: pluginImage
+        });
         const button = document.createElement('button');
         button.type = 'button';
         button.className = 'launchpad-card';
@@ -1403,6 +1506,35 @@ function renderLaunchpadCards(filteredPlugins) {
             <h3>${escapeHtml(pluginTitle || 'Untitled Plugin')}</h3>
             <p>${escapeHtml(hostLabel)}</p>
         `;
+
+        const cardImage = button.querySelector('.launchpad-card-media img');
+        if (cardImage) {
+            const fallbackQueue = getLaunchpadGoogleDriveImageFallbackUrls(plugin.imageUrl || plugin.image || '', pluginImage);
+            const initialSrc = normalizeLaunchpadUrl(pluginImage);
+            const retryQueue = fallbackQueue.filter((candidate) => candidate !== initialSrc);
+            cardImage.addEventListener('error', () => {
+                if (retryQueue.length) {
+                    const nextUrl = retryQueue.shift();
+                    console.warn('[Launchpad][Frontend] Retrying card image with Google Drive fallback URL.', {
+                        pluginId: plugin.id,
+                        previousUrl: cardImage.currentSrc || pluginImage,
+                        retryUrl: nextUrl
+                    });
+                    cardImage.src = nextUrl;
+                    return;
+                }
+
+                console.error('[Launchpad][Frontend] Launchpad card image failed to load.', {
+                    pluginId: plugin.id,
+                    imageUrl: pluginImage,
+                    note: 'Possible causes: invalid URL, Google Drive file not shared publicly, or host/CORS restrictions.'
+                });
+                const mediaNode = button.querySelector('.launchpad-card-media');
+                if (mediaNode) {
+                    mediaNode.innerHTML = '<i class="fas fa-book"></i>';
+                }
+            });
+        }
 
         button.addEventListener('click', () => {
             openLaunchpadPlugin(plugin);
@@ -1441,19 +1573,32 @@ function loadLaunchpadPlugins(searchTerm = '') {
     if (!launchpadPluginsUnsubscribe) {
         container.innerHTML = '<p class="text-center-message">Loading Launchpad plugins...</p>';
 
-        launchpadPluginsUnsubscribe = onSnapshot(query(launchpadPluginsCollectionRef), (snapshot) => {
+        const publicPluginsQuery = query(
+            launchpadPluginsCollectionRef,
+            where("visibility", "==", "public")
+        );
+
+        launchpadPluginsUnsubscribe = onSnapshot(publicPluginsQuery, (snapshot) => {
             launchpadPluginsCache = [];
 
             snapshot.forEach((docSnapshot) => {
                 const data = docSnapshot.data() || {};
+                const normalizedImageUrl = normalizeLaunchpadImageUrl(data.imageUrl || data.image || '');
+                if (normalizedImageUrl) {
+                    console.debug('[Launchpad][Frontend][Snapshot] Normalized imageUrl from Firestore:', {
+                        pluginId: docSnapshot.id,
+                        imageUrl: normalizedImageUrl
+                    });
+                }
                 launchpadPluginsCache.push({
                     id: docSnapshot.id,
                     title: data.title || data.name || '',
                     name: data.title || data.name || '',
-                    imageUrl: normalizeLaunchpadImageUrl(data.imageUrl || data.image || ''),
-                    image: normalizeLaunchpadImageUrl(data.imageUrl || data.image || ''),
+                    imageUrl: normalizedImageUrl,
+                    image: normalizedImageUrl,
                     projectUrl: normalizeLaunchpadUrl(data.projectUrl || data.url || '') || (data.projectUrl || data.url || ''),
                     url: normalizeLaunchpadUrl(data.projectUrl || data.url || '') || (data.projectUrl || data.url || ''),
+                    visibility: (data.visibility || '').toLowerCase(),
                     createdBy: data.createdBy || '',
                     timestamp: data.timestamp || null
                 });
