@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Ruiru Media House - Viewer</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+        <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+</head>
+<body>
+    <div class="container">
+                <div class="sidebar-wrapper" id="appSidebar">
+            <nav class="sidebar-nav">
+                <ul>
+                    <li><a href="#" class="nav-item active" data-section="home">
+                        <i class="fas fa-home"></i> Home
+                    </a></li>
+                    <li><a href="#" class="nav-item" data-section="sermons">
+                        <i class="fas fa-church"></i> Sermons LIVE
+                    </a></li>
+                    <li><a href="#" class="nav-item" data-section="entertainment">
+                        <i class="fas fa-film"></i> Entertainment
+                    </a></li>
+                    <li><a href="#" class="nav-item" data-section="bible-study">
+                        <i class="fas fa-book-bible"></i> Bible Study
+                    </a></li>
+                    <li><a href="#" class="nav-item" data-section="events">
+                        <i class="fas fa-calendar-alt"></i> Events
+                    </a></li>
+                    <li><a href="#" class="nav-item" data-section="launchpad">
+                        <i class="fas fa-rocket"></i> Launchpad
+                    </a></li>
+                </ul>
+            </nav>
+        </div>
+
+                <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+                <div class="main-content-wrapper">
+            <header class="main-header">
+                <button id="sidebarToggle" class="menu-toggle" type="button" aria-label="Toggle navigation" aria-controls="appSidebar" aria-expanded="true">
+                    <i class="fas fa-bars" aria-hidden="true"></i>
+                </button>
+                <div class="topbar-logo" role="button" tabindex="0" aria-label="Go to home">
+                    Ruiru Media House
+                </div>
+                <div class="search-bar">
+                    <input type="text" id="searchInput" placeholder="Search sermons, events...">
+                    <button class="search-icon" aria-label="Search">
+                        <i class="fas fa-search"></i>
+                    </button>
+                </div>
+                <div class="date-filter">
+                    <input type="date" id="eventDateFilter" title="Filter by Event Date" aria-label="Filter by date in MM slash DD slash YYYY format" lang="en-US">
+                    <button id="clearDateFilter" title="Clear Date Filter" class="hidden">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div class="settings-gear-wrapper">
+                    <button id="settingsGear" class="settings-gear" aria-label="Facebook settings" title="Facebook settings">
+                        <i class="fas fa-cog"></i>
+                    </button>
+                </div>
+            </header>
+
+            <main class="content-display">
+                <section id="home-section" class="content-section active">
+                                        <div id="home-hero-player-container" class="hidden">
+                        <div class="hero-player-content" id="heroPlayerContent"></div>
+                    </div>
+                    <div class="section-strip">
+                        <h2>Latest Media</h2>
+                        <span>Newest first</span>
+                    </div>
+                    <div id="homeVideoGrid" class="home-video-grid"></div>
+                    <div id="homeLoadMoreMount" class="load-more-mount"></div>
+
+                    <div class="theater-container hidden" id="theaterContainer">
+                        <div class="player-column">
+                            <div class="main-player-view" id="mainPlayerView" aria-live="polite">
+                            </div>
+                            <article class="player-details" id="playerDetails" aria-live="polite"></article>
+                        </div>
+                        <aside class="video-playlist-sidebar" id="videoPlaylistSidebar">
+                            <div class="playlist-boundary">
+                                <div class="boundary-inner">
+                                    <div id="boundaryWelcomeWrapper"></div>
+                                    <div id="playlistGrid" class="playlist-grid"></div>
+                                </div>
+                            </div>
+                        </aside>
+                    </div>
+                </section>
+
+                <section id="sermons-section" class="content-section">
+                    <div class="section-strip">
+                        <h2>Sermons LIVE</h2>
+                        <span>Newest first</span>
+                    </div>
+                    <div id="sermons-container" class="content-list"></div>
+                    <div id="sermons-load-more" class="load-more-mount"></div>
+                </section>
+
+                <section id="entertainment-section" class="content-section">
+                    <div class="section-strip">
+                        <h2>Entertainment</h2>
+                        <span>Newest first</span>
+                    </div>
+                    <div id="entertainment-container" class="content-list"></div>
+                    <div id="entertainment-load-more" class="load-more-mount"></div>
+                </section>
+
+                <section id="bible-study-section" class="content-section">
+                    <div class="section-strip">
+                        <h2>Bible Study</h2>
+                        <span>Newest first</span>
+                    </div>
+                    <div id="bible-study-container" class="content-list"></div>
+                    <div id="bible-study-load-more" class="load-more-mount"></div>
+                </section>
+
+                <section id="events-section" class="content-section">
+                    <div class="section-strip">
+                        <h2>Events</h2>
+                        <span>Newest first</span>
+                    </div>
+                    <div id="events-container" class="content-list"></div>
+                    <div id="events-load-more" class="load-more-mount"></div>
+                </section>
+
+                <section id="launchpad-section" class="content-section">
+                    <div class="section-strip">
+                        <h2>Launchpad</h2>
+                        <span>Hosted projects</span>
+                    </div>
+                    <div id="launchpad-container" class="launchpad-grid"></div>
+                    <div id="launchpad-viewer" class="launchpad-viewer hidden">
+                        <div class="launchpad-viewer-header">
+                            <button
+                                id="launchpadViewerMenuBtn"
+                                class="launchpad-header-menu-btn"
+                                type="button"
+                                aria-label="Open plugin navigation"
+                                aria-controls="sidebarOverlay"
+                                aria-expanded="false"
+                            >
+                                <i class="fas fa-bars" aria-hidden="true"></i>
+                            </button>
+                            <div class="launchpad-viewer-meta">
+                                <img id="launchpadViewerIcon" alt="Plugin icon" class="launchpad-viewer-icon">
+                                <div>
+                                    <h3 id="launchpadViewerTitle">Plugin Viewer</h3>
+                                    <p id="launchpadViewerHost"></p>
+                                </div>
+                            </div>
+                            <div class="launchpad-viewer-actions">
+                                <button id="launchpadCloseBtn" type="button" aria-label="Close plugin">
+                                    <i class="fas fa-times" aria-hidden="true"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <iframe
+                            id="launchpadIframe"
+                            title="Launchpad internal plugin viewer"
+                            loading="lazy"
+                            sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads"
+                            referrerpolicy="no-referrer"
+                        ></iframe>
+                    </div>
+                </section>
+            </main>
+        </div>
+    </div>
+
+    <div id="joker-screen" class="settings-modal" aria-hidden="true">
+        <div class="settings-modal-backdrop" data-close-settings></div>
+        <div class="settings-modal-panel youtube-settings-panel" role="dialog" aria-modal="true" aria-labelledby="youtubeSettingsTitle">
+            <button id="jokerBackPortal" class="settings-modal-close" type="button" aria-label="Close settings">
+                <i class="fas fa-times" aria-hidden="true"></i>
+            </button>
+            <h2 id="youtubeSettingsTitle"><i class="fas fa-cog" aria-hidden="true"></i> Settings</h2>
+            <button class="settings-row" type="button" id="autoplaySetting">
+                <span><i class="fas fa-play-circle" aria-hidden="true"></i> Autoplay</span>
+                <span id="autoplaySettingState">On</span>
+            </button>
+            <button class="settings-row" type="button" id="darkModeSetting">
+                <span><i class="fas fa-circle-half-stroke" aria-hidden="true"></i> Theme</span>
+                <span id="themeSettingState">Light mode</span>
+            </button>
+            <button class="settings-row" type="button" id="qualitySetting">
+                <span><i class="fas fa-sliders" aria-hidden="true"></i> Playback quality</span>
+                <span>Auto</span>
+            </button>
+            <button class="settings-row" type="button" id="aboutSetting">
+                <span><i class="fas fa-circle-info" aria-hidden="true"></i> About</span>
+                <span>Ruiru Media House</span>
+            </button>
+        </div>
+    </div>
+
+    <div id="shareModal" class="settings-modal" aria-hidden="true">
+        <div class="settings-modal-backdrop" data-close-share></div>
+        <div class="settings-modal-panel share-modal-panel" role="dialog" aria-modal="true" aria-labelledby="shareModalTitle">
+            <button class="settings-modal-close" type="button" aria-label="Close share" data-close-share>
+                <i class="fas fa-times" aria-hidden="true"></i>
+            </button>
+            <h2 id="shareModalTitle"><i class="fas fa-share" aria-hidden="true"></i> Share</h2>
+            <label for="shareVideoLink">Video link</label>
+            <div class="share-copy-row">
+                <input type="url" id="shareVideoLink" readonly>
+                <button id="copyShareLink" type="button">Copy</button>
+            </div>
+        </div>
+    </div>
+
+        <div id="registration-modal" class="registration-modal hidden" aria-hidden="true">
+        <div class="registration-modal-overlay"></div>
+        <div class="registration-modal-content">
+            <div class="registration-modal-icon" id="registration-modal-icon"></div>
+            <h2 class="registration-modal-title" id="registration-modal-title"></h2>
+            <p class="registration-modal-message" id="registration-modal-message"></p>
+            <button class="registration-modal-close" id="registration-modal-close">OK</button>
+        </div>
+    </div>
+    <div class="youtube-btn-container hidden">
+  <button id="connectYoutube">Connect YouTube</button>
+</div>
+
+
+        <script src="https://www.youtube.com/iframe_api"></script>
+    <script type="module" src="./script.js"></script>
+</body>
+</html>

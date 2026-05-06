@@ -1,0 +1,12 @@
+{
+  "name": "insight-viewer-api",
+  "version": "1.0.0",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "firebase-admin": "^13.8.0",
+    "googleapis": "^171.4.0"
+  }
+}
